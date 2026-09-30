@@ -62,6 +62,11 @@ void main() {
             MaterialApp(home: Scaffold(body: CloudPage(fixture.services))),
           );
           await tester.pumpAndSettle();
+          await tester.scrollUntilVisible(
+            find.text(p.label),
+            250,
+            scrollable: find.byType(Scrollable).first,
+          );
           await tester.tap(find.text(p.label));
           await tester.pumpAndSettle();
           if (p == CloudPlatform.guangya) {
@@ -150,6 +155,11 @@ void main() {
             MaterialApp(home: Scaffold(body: CloudPage(fixture.services))),
           );
           await tester.pumpAndSettle();
+          await tester.scrollUntilVisible(
+            find.text(p.label),
+            250,
+            scrollable: find.byType(Scrollable).first,
+          );
           await tester.tap(find.text(p.label));
           await tester.pumpAndSettle();
           final owner = tester

@@ -186,7 +186,17 @@ void main() {
     await tester.pumpAndSettle();
     debugDisableShadows = true;
     addTearDown(() async {
-      await tester.runAsync(services.close);
+      await tester.pumpWidget(const SizedBox.shrink());
+      var closed = false;
+      final closing = services.close().whenComplete(() => closed = true);
+      for (var i = 0; i < 100 && !closed; i++) {
+        await tester.pump();
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)),
+        );
+      }
+      expect(closed, isTrue, reason: 'Fixture cleanup must finish');
+      await closing;
     });
     return services;
   }
@@ -346,6 +356,11 @@ void main() {
         http: http,
       );
       await tester.scrollUntilVisible(find.byTooltip('蓝奏云解析'), 300);
+      await tester.drag(
+        find.byKey(const PageStorageKey('cloud-list')),
+        const Offset(0, -180),
+      );
+      await tester.pumpAndSettle();
       expect(find.text('支持不登录解析'), findsOneWidget);
       expect(find.byTooltip('蓝奏云账号操作'), findsOneWidget);
       await tester.tap(find.byTooltip('蓝奏云解析'));
@@ -493,10 +508,14 @@ void main() {
           await tester.pumpAndSettle();
         }
         expect(tester.takeException(), isNull);
-        await expectLater(
-          find.byKey(const Key('capture')),
-          matchesGoldenFile('goldens/$name.png'),
-        );
+        // Reference images use the Windows Microsoft YaHei font.
+        // Other hosts still run all layout and interaction assertions.
+        if (systemFont) {
+          await expectLater(
+            find.byKey(const Key('capture')),
+            matchesGoldenFile('goldens/$name.png'),
+          );
+        }
         debugDisableShadows = true;
       } finally {
         debugDefaultTargetPlatformOverride = null;
@@ -539,6 +558,7 @@ void main() {
       expect(services.downloads.tasks, hasLength(2));
       // The fixture initialized its storage on the real event loop. Finish
       // writes queued by the sheet's callback before the common IO teardown.
+      await tester.pumpWidget(const SizedBox.shrink());
       var closed = false;
       services.close().then((_) => closed = true);
       for (var i = 0; i < 10 && !closed; i++) {
@@ -670,6 +690,7 @@ void main() {
       expect(tester.takeException(), isNull);
       // The UI queued storage futures in FakeAsync, while fixture setup used
       // real IO. Drain both loops before the common teardown awaits close().
+      await tester.pumpWidget(const SizedBox.shrink());
       var closed = false;
       services.close().then((_) => closed = true);
       for (var i = 0; i < 10 && !closed; i++) {
@@ -725,6 +746,7 @@ void main() {
     expect(find.byType(ManualLoginPage), findsNothing);
     expect(tester.takeException(), isNull);
     // Finish futures created by both the UI's fake clock and real fixture IO.
+    await tester.pumpWidget(const SizedBox.shrink());
     var closed = false;
     services.close().then((_) => closed = true);
     for (var i = 0; i < 10 && !closed; i++) {
@@ -821,7 +843,9 @@ void main() {
         (110, const Color(0xffff3b30)),
       ]) {
         used = value;
-        await services.refreshAccount(CloudPlatform.quark);
+        await tester.runAsync(
+          () => services.refreshAccount(CloudPlatform.quark),
+        );
         await tester.pumpAndSettle();
         final bar = tester.widget<LinearProgressIndicator>(
           find.byKey(const Key('quota-Quark')),
@@ -863,6 +887,12 @@ void main() {
       expect(find.byType(LinearProgressIndicator), findsNothing);
       failed = false;
       await tester.tap(retry);
+      for (var i = 0; i < 100 && services.accountErrors.isNotEmpty; i++) {
+        await tester.pump();
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)),
+        );
+      }
       await tester.pumpAndSettle();
       expect(services.accounts[CloudPlatform.quark]!.total, 200);
       expect(services.accountErrors, isEmpty);

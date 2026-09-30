@@ -13,7 +13,7 @@ import 'package:asterlink/data/providers/pan123.dart';
 import 'package:asterlink/data/providers/xunlei_protocol.dart';
 
 void main() {
-  test('All ten share formats recognize their own extraction codes', () {
+  test('All supported share formats recognize their own extraction codes', () {
     final links = LinkParser.parse('''
 https://pan.baidu.com/s/1Baidu_Test?pwd=a1b2
 https://pan.quark.cn/s/Quark123 提取码：q123
@@ -24,12 +24,14 @@ https://yun.139.com/shareweb/#/w/i/C139_ID 提取码：m139
 https://cloud.189.cn/web/share?code=TianyiExample 访问码：t189
 https://example.lanzouu.com/iExample123 提取码：l123
 https://www.alipan.com/s/Ali123 提取码：a123
+https://115cdn.com/s/swfixture?password=k115
+https://pan.wo.cn/s/1F1t6r76400?password=w123
 https://www.guangyapan.com/s/Guangya123 提取码：g123
 ''');
-    expect(links.length, 10);
+    expect(links.length, 12);
     expect(
       links.map((l) => l.platform).toSet(),
-      CloudPlatform.values.where((p) => p.supportsSharing).toSet(),
+      CloudPlatform.values.where((p) => p.supportsShareParsing).toSet(),
     );
     expect(links.map((l) => l.passcode), [
       'a1b2',
@@ -41,6 +43,8 @@ https://www.guangyapan.com/s/Guangya123 提取码：g123
       't189',
       'l123',
       'a123',
+      'k115',
+      'w123',
       'g123',
     ]);
     expect(links.every((l) => l.kind == LinkKind.cloudShare), isTrue);

@@ -73,6 +73,9 @@ Credential _credential(CloudPlatform platform, {int revision = 42}) =>
             'Basic ${base64Encode(utf8.encode('pc:13800000000:fixture'))}',
       },
       CloudPlatform.tianyi => {'primary': 'COOKIE_LOGIN_USER=fixture'},
+      CloudPlatform.pan115 => {
+        'primary': 'UID=fixture; CID=fixture; SEID=fixture',
+      },
       CloudPlatform.guangya || CloudPlatform.aliyun => {
         'primary': 'fixture-refresh-token',
         'accessToken': 'fixture-access-token',
@@ -165,10 +168,7 @@ void main() {
       expect(
         WebLoginTarget.targets.keys.toSet(),
         CloudPlatform.values
-            .where(
-              (platform) =>
-                  platform.requiresAccount && platform != CloudPlatform.xunlei,
-            )
+            .where((platform) => platform.requiresAccount)
             .toSet(),
       );
       expect(

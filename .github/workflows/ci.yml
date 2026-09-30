@@ -55,3 +55,6 @@ jobs:
       - name: Build Windows from source
         if: matrix.target == 'windows'
         run: ./tool/build-windows.ps1 -BuildConfig config/build.community.json
+      - name: Verify Windows layouts and reference images
+        if: matrix.target == 'windows'
+        run: flutter test --no-pub test/widget_test.dart --reporter expanded

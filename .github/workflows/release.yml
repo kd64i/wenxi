@@ -1,0 +1,141 @@
+name: Build release draft
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  tag:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - name: Require the complete project version as the tag
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: dart tool/sync_version.dart --check --tag "$RELEASE_TAG"
+  checks:
+    needs: tag
+    uses: ./.github/workflows/checks.yml
+  package:
+    needs: [tag, checks]
+    runs-on: windows-2022
+    environment: release
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [android, windows]
+    env:
+      PUB_HOSTED_URL: https://pub.dev
+      FLUTTER_STORAGE_BASE_URL: https://storage.googleapis.com
+      GOPROXY: https://proxy.golang.org,direct
+      GOTOOLCHAIN: go1.24.7
+      GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx4g
+      ASTERLINK_CONTROL_URL: ${{ vars.ASTERLINK_CONTROL_URL }}
+      ASTERLINK_GITHUB_REPO: ${{ vars.ASTERLINK_GITHUB_REPO || github.repository }}
+      ASTERLINK_APPLICATION_ID: ${{ vars.ASTERLINK_APPLICATION_ID }}
+      UMENG_APPKEY: ${{ vars.UMENG_APPKEY }}
+      UMENG_CHANNEL: ${{ vars.UMENG_CHANNEL || 'github' }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          android: ${{ matrix.target == 'android' && 'true' || 'false' }}
+      - name: Prepare Android signing files
+        if: matrix.target == 'android'
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: python tool/prepare-ci-release.py --android
+      - name: Prepare Windows release settings
+        if: matrix.target == 'windows'
+        run: python tool/prepare-ci-release.py
+      - name: Build, test and inspect Android
+        if: matrix.target == 'android'
+        run: |
+          $sdkmanager = Join-Path $env:ANDROID_HOME 'cmdline-tools/latest/bin/sdkmanager.bat'
+          & $sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358'
+          if ($LASTEXITCODE -ne 0) { throw 'Android SDK installation failed.' }
+          ./tool/build-android.ps1
+          $settings = Get-Content -LiteralPath .local/build-config.json -Raw | ConvertFrom-Json
+          python tool/verify_apk.py --apk build/app/outputs/flutter-apk/app-release.apk --sdk $env:ANDROID_HOME --application-id $settings.applicationId --umeng-channel $settings.metricsChannel --output .local/release-apk-inspection.json
+          if ($LASTEXITCODE -ne 0) { throw 'APK inspection failed.' }
+          $env:GRADLE_USER_HOME = Join-Path $env:GITHUB_WORKSPACE '.local/gradle-home'
+          & ./android/gradlew.bat -p android :app:testReleaseUnitTest -Ptarget-platform=android-arm64 --no-daemon
+          if ($LASTEXITCODE -ne 0) { throw 'Android unit tests failed.' }
+          python tool/package-release.py --platform android
+      - name: Build Windows portable package and installer
+        if: matrix.target == 'windows'
+        run: |
+          ./tool/build-windows.ps1
+          choco install innosetup --version=6.7.3 --yes --no-progress
+          if ($LASTEXITCODE -ne 0) { throw 'Inno Setup installation failed.' }
+          ./tool/build-windows-installer.ps1 -OutputDir .local/release-installer
+          $installers = @(Get-ChildItem -LiteralPath .local/release-installer -Filter '*.exe' -File)
+          if ($installers.Count -ne 1) { throw 'Expected one installer.' }
+          python tool/package-release.py --platform windows --installer $installers[0].FullName
+      - name: Save only release assets
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-${{ matrix.target }}
+          path: |
+            .local/release-assets/*.apk
+            .local/release-assets/*.exe
+            .local/release-assets/*.zip
+          include-hidden-files: true
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - name: Remove temporary signing files
+        if: always() && matrix.target == 'android'
+        run: |
+          foreach ($path in @('.local/ci-release.jks', '.local/keystore.properties')) {
+            if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Force }
+          }
+  draft:
+    needs: package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: .local/release-assets
+      - name: Add the matching source archive and checksums
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python tool/check_public_files.py --staged
+          git archive --format=zip --prefix="AsterLink-${RELEASE_TAG#v}/" --output=".local/release-assets/asterlink-${RELEASE_TAG#v}-source.zip" HEAD
+          python tool/package-release.py --checksums
+      - name: Create a draft for review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh release create "$RELEASE_TAG" --verify-tag --draft --title "AsterLink $RELEASE_TAG" --notes-file .github/RELEASE_NOTES.md .local/release-assets/*

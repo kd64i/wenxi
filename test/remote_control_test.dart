@@ -9,7 +9,7 @@ import 'remote_control_support.dart';
 void main() {
   test('The shipped single JSON is valid and inactive until configured', () {
     final config = RemoteControlConfig.decode(
-      File('control.json').readAsStringSync(),
+      File('config/control.example.json').readAsStringSync(),
     );
     expect(config.revision, 1);
     expect(config.announcement, isNull);

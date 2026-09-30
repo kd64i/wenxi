@@ -5,8 +5,11 @@ permissions:
   contents: read
 jobs:
   checks:
-    runs-on: ubuntu-24.04
+    runs-on: windows-2022
     timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
     env:
       PUB_HOSTED_URL: https://pub.dev
       FLUTTER_STORAGE_BASE_URL: https://storage.googleapis.com
@@ -29,6 +32,9 @@ jobs:
         run: ./tool/tests/build-config.test.ps1
       - name: Analyze Flutter
         run: flutter analyze --no-pub
+      - name: Build the native helper used by integration tests
+        shell: pwsh
+        run: ./tool/build-native-windows.ps1
       - name: Test Flutter
         run: flutter test --no-pub --reporter expanded
       - name: Test browser scripts and configuration editor

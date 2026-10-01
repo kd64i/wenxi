@@ -5,6 +5,21 @@ $stage = Join-Path $projectPath ('.local/build-config-test-' + [Guid]::NewGuid()
 New-Item -ItemType Directory -Path $stage -Force | Out-Null
 $count = 0
 try {
+    $fixtureVariable = 'ASTERLINK_ENV_RESTORE_TEST_' + [Guid]::NewGuid().ToString('N')
+    try {
+        foreach ($previous in @($null, 'false', 'fixture')) {
+            $saved = @{ $fixtureVariable = $previous }
+            [Environment]::SetEnvironmentVariable($fixtureVariable, 'temporary', 'Process')
+            Restore-AsterLinkEnvironment -SavedEnvironment $saved
+            $restored = [Environment]::GetEnvironmentVariable($fixtureVariable, 'Process')
+            if ($previous -ceq $null) {
+                if (Test-Path -LiteralPath "Env:$fixtureVariable") { throw 'An absent variable was restored as an empty override.' }
+            } elseif ($restored -cne $previous) {
+                throw 'The previous environment value was not restored.'
+            }
+            $count++
+        }
+    } finally { Remove-Item -LiteralPath "Env:$fixtureVariable" -ErrorAction SilentlyContinue }
     $source = Join-Path $projectPath 'config/build.community.json'
     $settings = Get-AsterLinkBuildSettings -ProjectPath $projectPath -BuildConfig $source
     if ($settings.controlEnabled -or $settings.githubRepository -or $settings.applicationId -ne 'com.asterlink.app.community') {

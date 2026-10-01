@@ -64,7 +64,5 @@ try {
         Get-FileHash -LiteralPath (Join-Path $projectRoot 'android\app\libs\gopeed-1.8.1.aar') -Algorithm SHA256
     } finally { Pop-Location }
 } finally {
-    foreach ($name in $savedEnvironment.Keys) {
-        [Environment]::SetEnvironmentVariable($name, $savedEnvironment[$name], 'Process')
-    }
+    Restore-AsterLinkEnvironment -SavedEnvironment $savedEnvironment
 }

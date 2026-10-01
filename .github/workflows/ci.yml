@@ -49,6 +49,13 @@ jobs:
           ./tool/build-android.ps1 -BuildConfig config/build.community.json -Unsigned
           python tool/verify_apk.py --apk build/app/outputs/flutter-apk/app-release.apk --sdk $env:ANDROID_HOME --unsigned --application-id com.asterlink.app.community --umeng-channel community --output .local/ci-apk-inspection.json
           if ($LASTEXITCODE -ne 0) { throw 'APK inspection failed.' }
+      - name: Test Android release code
+        if: matrix.target == 'android'
+        env:
+          ORG_GRADLE_PROJECT_ASTERLINK_UNSIGNED: 'true'
+          ORG_GRADLE_PROJECT_ASTERLINK_APPLICATION_ID: com.asterlink.app.community
+          ORG_GRADLE_PROJECT_UMENG_CHANNEL: community
+        run: |
           $env:GRADLE_USER_HOME = Join-Path $env:GITHUB_WORKSPACE '.local/gradle-home'
           & ./android/gradlew.bat -p android :app:testReleaseUnitTest -Ptarget-platform=android-arm64 --no-daemon
           if ($LASTEXITCODE -ne 0) { throw 'Android unit tests failed.' }

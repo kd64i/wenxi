@@ -45,7 +45,5 @@ try {
         & (Join-Path $PSScriptRoot 'normalize-local-properties.ps1')
     } finally { Pop-Location }
 } finally {
-    foreach ($name in $savedEnvironment.Keys) {
-        [Environment]::SetEnvironmentVariable($name, $savedEnvironment[$name], 'Process')
-    }
+    Restore-AsterLinkEnvironment -SavedEnvironment $savedEnvironment
 }

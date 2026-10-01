@@ -1,3 +1,16 @@
+function Restore-AsterLinkEnvironment {
+    param([hashtable]$SavedEnvironment)
+    foreach ($name in $SavedEnvironment.Keys) {
+        if ($null -eq $SavedEnvironment[$name]) {
+            # Remove absent variables explicitly: newer PowerShell/.NET versions
+            # preserve empty strings, which override Gradle property defaults.
+            Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+        } else {
+            [Environment]::SetEnvironmentVariable($name, $SavedEnvironment[$name], 'Process')
+        }
+    }
+}
+
 function Invoke-AsterLinkTool {
     param([string]$Command, [string[]]$Arguments, [string]$Failure = 'Build command failed')
     Get-Command $Command -ErrorAction Stop | Out-Null

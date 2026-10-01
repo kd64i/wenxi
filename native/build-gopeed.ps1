@@ -55,7 +55,7 @@ try {
         }
         $bindArguments = @(
             'bind', '-tags', 'nosqlite', '-trimpath',
-            '-ldflags', '-w -s -checklinkname=0 -X github.com/GopeedLab/gopeed/pkg/base.Version=1.8.1',
+            '-ldflags', '-w -s -checklinkname=0 -extldflags=-Wl,-z,max-page-size=16384 -X github.com/GopeedLab/gopeed/pkg/base.Version=1.8.1',
             '-o', '..\..\android\app\libs\gopeed-1.8.1.aar',
             '-target=android', '-androidapi', '23', '-javapkg=com.asterlink.nativecore', './bind/asterlink'
         )

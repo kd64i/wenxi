@@ -914,8 +914,9 @@ void main() {
         ),
       );
       expect(outputs.toSet().length, 3);
+      final resolvedExports = await exports.resolveSymbolicLinks();
       for (final path in outputs) {
-        expect(p.isWithin(exports.path, path), isTrue);
+        expect(p.isWithin(resolvedExports, path), isTrue);
         expect(await File(path).readAsBytes(), [5, 6, 7]);
       }
     },

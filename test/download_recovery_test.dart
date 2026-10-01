@@ -444,12 +444,15 @@ void main() {
             .pause('first')
             .then((_) => pauseFirstFinished = true);
         try {
-          await Future<void>.delayed(const Duration(milliseconds: 250));
+          await Future.wait([slowPause, firstSnapshot, firstPause]).timeout(
+            const Duration(seconds: 3),
+          );
+          expect(release.isCompleted, isFalse);
           expect(pauseSlowFinished, isTrue);
           expect(snapshotFinished, isTrue);
           expect(pauseFirstFinished, isTrue);
           debugPrint(
-            'REGRESSION realHelperPauseDuringResolve withinMs=250 otherSnapshotBlocked=false otherPauseBlocked=false',
+            'REGRESSION realHelperPauseDuringResolve beforeResponseHeaders=true otherSnapshotBlocked=false otherPauseBlocked=false',
           );
         } finally {
           release.complete();

@@ -29,6 +29,6 @@ python tool/check_public_files.py --staged
 - `ANDROID_KEY_ALIAS`
 - `ANDROID_KEY_PASSWORD`
 
-Variables 中设置 `ASTERLINK_CONTROL_URL`、`ASTERLINK_GITHUB_REPO` 和 `ASTERLINK_APPLICATION_ID`。正式版包名为 `com.asterlink.app`；未配置时使用公开模板的默认值，本机参数不会自动上传。
+Secrets 中另设 `ASTERLINK_CONTROL_URL`、`UMENG_APPKEY`；Variables 中设置 `ASTERLINK_GITHUB_REPO`、`ASTERLINK_APPLICATION_ID` 和 `UMENG_CHANNEL`。正式版包名为 `com.asterlink.app`；正式配置不完整时工作流会停止，本机参数不会自动上传。
 
-修改 `pubspec.yaml` 后运行 `dart tool/sync_version.dart --write`。提交代码并推送与完整版本一致的标签，例如 `v1.0.7+107`，工作流会检查、打包并创建草稿 Release。核对资产后手动发布；不要覆盖已发布标签。只有正式 Release 会被备用更新识别。
+修改 `pubspec.yaml` 后运行 `dart tool/sync_version.dart --write`。推送与完整版本一致的新标签，或在 Actions → Build signed release → Run workflow 选择分支，均可生成正式签名安装包。完成后下载 `release-android`、`release-windows` 附件；工作流不会自动创建或发布 Release。需要发布时，再单独上传附件并发布版本。不要覆盖已发布标签。只有正式 Release 会被备用更新识别。

@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="docs/images/app-icon.png" width="96" height="96" alt="文析助手图标">
+  <img src="docs/images/app-icon.png" width="112" height="112" alt="文析助手图标">
   <h1>文析助手 · AsterLink</h1>
   <p>一个安卓+PC的双端聚合网盘解析软件。</p>
   <p>
@@ -36,29 +36,33 @@
 
 <table>
   <tr>
-    <td align="center" width="25%"><img src="assets/icons/quark.png" width="36" height="36" alt="夸克网盘"><br><strong>夸克网盘</strong></td>
-    <td align="center" width="25%"><img src="assets/icons/uc.png" width="36" height="36" alt="UC 网盘"><br><strong>UC 网盘</strong></td>
-    <td align="center" width="25%"><img src="assets/icons/xunlei.png" width="36" height="36" alt="迅雷云盘"><br><strong>迅雷云盘</strong></td>
-    <td align="center" width="25%"><img src="assets/icons/baidu.png" width="36" height="36" alt="百度网盘"><br><strong>百度网盘</strong></td>
+    <td align="center" width="33%"><img src="assets/icons/quark.png" width="40" height="40" alt="夸克网盘"><br><strong>夸克网盘</strong></td>
+    <td align="center" width="33%"><img src="assets/icons/uc.png" width="40" height="40" alt="UC 网盘"><br><strong>UC 网盘</strong></td>
+    <td align="center" width="33%"><img src="assets/icons/xunlei.png" width="40" height="40" alt="迅雷云盘"><br><strong>迅雷云盘</strong></td>
   </tr>
   <tr>
-    <td align="center" width="25%"><img src="assets/icons/123.webp" width="36" height="36" alt="123 云盘"><br><strong>123 云盘</strong></td>
-    <td align="center" width="25%"><img src="assets/icons/yidong.png" width="36" height="36" alt="中国移动云盘"><br><strong>中国移动云盘</strong></td>
-    <td align="center" width="25%"><img src="assets/icons/tianyi.png" width="36" height="36" alt="天翼云盘"><br><strong>天翼云盘</strong></td>
-    <td align="center" width="25%"><img src="assets/icons/guangya.png" width="36" height="36" alt="光鸭云盘"><br><strong>光鸭云盘</strong></td>
+    <td align="center"><img src="assets/icons/baidu.png" width="40" height="40" alt="百度网盘"><br><strong>百度网盘</strong></td>
+    <td align="center"><img src="assets/icons/123.webp" width="40" height="40" alt="123 云盘"><br><strong>123 云盘</strong></td>
+    <td align="center"><img src="assets/icons/yidong.png" width="40" height="40" alt="中国移动云盘"><br><strong>中国移动云盘</strong></td>
   </tr>
   <tr>
-    <td align="center" width="25%"><img src="assets/icons/ali.png" width="36" height="36" alt="阿里云盘"><br><strong>阿里云盘</strong></td>
-    <td align="center" width="25%"><img src="assets/icons/lanzous.png" width="36" height="36" alt="蓝奏云"><br><strong>蓝奏云</strong></td>
-    <td align="center" width="25%"><img src="assets/icons/wopan.png" width="36" height="36" alt="中国联通云盘"><br><strong>中国联通云盘</strong></td>
-    <td align="center" width="25%"><img src="assets/icons/115.png" width="36" height="36" alt="115 网盘"><br><strong>115 网盘</strong></td>
+    <td align="center"><img src="assets/icons/tianyi.png" width="40" height="40" alt="天翼云盘"><br><strong>天翼云盘</strong></td>
+    <td align="center"><img src="assets/icons/guangya.png" width="40" height="40" alt="光鸭云盘"><br><strong>光鸭云盘</strong></td>
+    <td align="center"><img src="assets/icons/ali.png" width="40" height="40" alt="阿里云盘"><br><strong>阿里云盘</strong></td>
   </tr>
   <tr>
-    <td align="center"><img src="assets/icons/ctfile.png" width="36" height="36" alt="城通网盘"><br><strong>城通网盘</strong></td>
-    <td align="center"><img src="assets/icons/lanzous.png" width="36" height="36" alt="蓝奏云优享版"><br><strong>蓝奏云优享版</strong><br><sub>个人盘</sub></td>
-    <td align="center" colspan="2"><img src="assets/icons/weiyun.png" width="36" height="36" alt="腾讯微云"><br><strong>腾讯微云</strong><br><sub>个人盘</sub></td>
+    <td align="center"><img src="assets/icons/lanzous.png" width="40" height="40" alt="蓝奏云"><br><strong>蓝奏云</strong></td>
+    <td align="center"><img src="assets/icons/wopan.png" width="40" height="40" alt="中国联通云盘"><br><strong>中国联通云盘</strong></td>
+    <td align="center"><img src="assets/icons/115.png" width="40" height="40" alt="115 网盘"><br><strong>115 网盘</strong></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="assets/icons/ctfile.png" width="40" height="40" alt="城通网盘"><br><strong>城通网盘</strong></td>
+    <td align="center"><img src="assets/icons/lanzous.png" width="40" height="40" alt="蓝奏云优享版"><br><strong>蓝奏云优享版</strong><br><sub>仅个人网盘管理</sub></td>
+    <td align="center"><img src="assets/icons/weiyun.png" width="40" height="40" alt="腾讯微云"><br><strong>腾讯微云</strong><br><sub>仅个人网盘管理</sub></td>
   </tr>
 </table>
+
+网盘列表支持自定义排序和隐藏；蓝奏云优享版与腾讯微云暂不支持分享链接解析。
 
 
 

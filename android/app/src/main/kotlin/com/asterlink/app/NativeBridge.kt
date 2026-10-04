@@ -182,6 +182,11 @@ class NativeBridge(private val context: Context, engine: FlutterEngine) {
         executor.execute {
             try {
                 val value: Any? = when (call.method) {
+                    "prepareAppUpdate" -> AppUpdatePackage(context).prepare(
+                        call.argument<String>("path").orEmpty(),
+                        call.argument<String>("version").orEmpty(),
+                        call.argument<Number>("build")?.toLong() ?: 0,
+                    )
                     "subtitleFontFiles" -> SubtitleFontFiles.available()
                     "diagnosticPaths" -> mapOf("logs" to File(context.noBackupFilesDir, "diagnostics_flutter").absolutePath, "enabled" to diagnostics.enabled)
                     "diagnosticSnapshot" -> diagnostics.snapshot() + mapOf("downloadProtection" to downloadProtection.status())
@@ -232,6 +237,7 @@ class NativeBridge(private val context: Context, engine: FlutterEngine) {
             } catch (error: Throwable) {
                 if (!call.method.startsWith("diagnostic")) diagnostics.record("bridge.${call.method}", error)
                 val message = when (call.method) {
+                    "prepareAppUpdate" -> error.message ?: "安装包校验失败，请重新下载或使用浏览器更新"
                     "legacySnapshot" -> "旧版数据读取失败，原文件已保留，可稍后重试导入"
                     "deleteFile" -> "文件未能删除，请检查目录权限后重试"
                     "saveFile" -> if (error.message == "保存已暂停") "保存已暂停" else "无法保存下载文件，请检查存储空间和目录权限"

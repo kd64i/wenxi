@@ -21,7 +21,9 @@ android {
     kotlinOptions { jvmTarget = JavaVersion.VERSION_17.toString() }
     defaultConfig {
         applicationId = providers.gradleProperty("ASTERLINK_APPLICATION_ID")
-            .getOrElse("com.asterlink.app.community")
+            // A direct local release build is the official package. The
+            // community workflow passes its own id explicitly.
+            .getOrElse("com.asterlink.app")
         minSdk = flutter.minSdkVersion
         targetSdk = 36
         versionCode = flutter.versionCode

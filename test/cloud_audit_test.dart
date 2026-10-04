@@ -48,6 +48,7 @@ BrowseSession _share(CloudPlatform platform) => BrowseSession(
 );
 Credential _credential(CloudPlatform platform, {int revision = 42}) =>
     Credential(platform.label, switch (platform) {
+      CloudPlatform.ctfile => {'primary': 'fixture-session-token'},
       CloudPlatform.baidu => {'primary': 'BDUSS=fixture'},
       CloudPlatform.quark || CloudPlatform.uc => {
         'primary': '__pus=account; __puus=old',
@@ -168,7 +169,10 @@ void main() {
       expect(
         WebLoginTarget.targets.keys.toSet(),
         CloudPlatform.values
-            .where((platform) => platform.requiresAccount)
+            .where(
+              (platform) =>
+                  platform.requiresAccount && platform != CloudPlatform.ctfile,
+            )
             .toSet(),
       );
       expect(
@@ -331,7 +335,7 @@ void main() {
           now: () => _now,
           taskDelay: Duration.zero,
           stageCleanup: (cleanup) async => cleanups.add(cleanup),
-        ).download(_share(CloudPlatform.quark), _file, old);
+        ).downloadFallback(_share(CloudPlatform.quark), _file, old);
         expect(polls, 2);
         expect(spec.headers['Cookie'], contains('__puus=from-download'));
         expect(spec.cleanup, same(cleanups.single));

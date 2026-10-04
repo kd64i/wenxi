@@ -132,6 +132,9 @@ class _Fixture {
           },
         });
       case '/1/clouddrive/file/download':
+        if (r.json.containsKey('pwd_id')) {
+          return jsonResponse({'status': 400, 'code': 23018}, 400);
+        }
         final fid = r.json['fids'][0] as String;
         return _ok([
           {'fid': fid, 'size': 4, 'download_url': 'https://cdn.example/$fid'},
@@ -205,9 +208,14 @@ void main() {
         expect(save['fid_list'], ['shared-file']);
         expect(save['fid_token_list'], ['file-token-2']);
         expect(save['stoken'], 'share-token-2');
-        expect(f.calls('/file/download').single.json['fids'], [
-          'saved-shared-file-1',
-        ]);
+        expect(
+          f
+              .calls('/file/download')
+              .where((r) => !r.json.containsKey('pwd_id'))
+              .single
+              .json['fids'],
+          ['saved-shared-file-1'],
+        );
       },
     );
   }

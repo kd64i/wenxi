@@ -14,6 +14,7 @@ import '../data/http.dart';
 import '../domain/auth.dart';
 import '../domain/links.dart';
 import '../domain/models.dart';
+import '../domain/xunlei_kouling.dart';
 import '../platform/file_access.dart';
 import 'browser_page.dart';
 import 'common.dart';
@@ -104,7 +105,7 @@ class ParsePageState extends State<ParsePage> {
   }
 
   void _editCode(String value) {
-    final link = current;
+    var link = current;
     if (link == null) return;
     setState(() {
       _manualCodes[link.url] = value;
@@ -238,6 +239,39 @@ class ParsePageState extends State<ParsePage> {
       'parse.start',
       fields: {'kind': link?.kind.name, 'platform': link?.platform?.name},
     );
+    if (link == null && XunleiKouling.looksLike(input.text)) {
+      final generation = ++_generation;
+      setState(() {
+        working = true;
+        error = '';
+        stage = '正在解析迅雷中文口令…';
+      });
+      try {
+        final resolved = await widget.services.cloud.resolveXunleiKouling(
+          input.text,
+        );
+        if (!_current(generation)) return;
+        setState(() {
+          working = false;
+          stage = '';
+        });
+        _replaceInput(resolved);
+        await parse();
+      } catch (e, stack) {
+        if (!_current(generation)) return;
+        DiagnosticLog.error('parse.kouling_failed', e, stack);
+        setState(() => error = errorText(e));
+      } finally {
+        if (_current(generation)) {
+          _progress.close();
+          setState(() {
+            working = false;
+            stage = '';
+          });
+        }
+      }
+      return;
+    }
     if (input.text.trim().isEmpty || link == null) {
       setState(
         () => error = input.text.trim().isEmpty ? '请输入内容' : '未识别到有效链接，请检查分享内容',

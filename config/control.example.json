@@ -88,6 +88,8 @@
       "version": "1.0.7",
       "build": 107,
       "downloadUrl": "",
+      "inAppDownloadUrl": "",
+      "inAppPasscode": "",
       "notes": "",
       "expiresAt": ""
     },
@@ -97,6 +99,8 @@
       "version": "1.0.7",
       "build": 107,
       "downloadUrl": "",
+      "inAppDownloadUrl": "",
+      "inAppPasscode": "",
       "notes": "",
       "expiresAt": ""
     }

@@ -15,6 +15,7 @@ import 'data/cloud_favorites.dart';
 import 'data/http.dart';
 import 'data/remote_control_http.dart';
 import 'data/remote_control_service.dart';
+import 'data/app_update_service.dart';
 import 'data/github_update_service.dart';
 import 'data/providers/uc.dart';
 import 'data/providers/quark.dart';
@@ -33,11 +34,14 @@ import 'download/download_shutdown.dart';
 import 'download/download_overlay.dart';
 import 'download/transfer_http.dart';
 import 'platform/file_access.dart';
+import 'platform/app_update_installer.dart';
 import 'platform/clipboard_links.dart';
 import 'platform/external_open.dart';
 import 'platform/native_engine.dart';
 import 'platform/windows_actions.dart';
 import 'data/providers/ilanzou.dart';
+import 'data/providers/lanzou.dart';
+import 'data/providers/ctfile.dart';
 import 'data/providers/weiyun.dart';
 import 'data/providers/wopan.dart';
 import 'data/providers/pan115.dart';
@@ -92,12 +96,29 @@ class AppServices extends ChangeNotifier {
       cleanups,
       checkAccess: control.checkCloud,
       preparationRetries: () => settings.retries,
+      directShareDownloadEnabled: (platform, authenticated) {
+        final current = settings;
+        return switch ((platform, authenticated)) {
+          (CloudPlatform.quark, false) => current.quarkGuestDirectDownload,
+          (CloudPlatform.quark, true) =>
+            current.quarkAuthenticatedDirectDownload,
+          (CloudPlatform.uc, false) => current.ucGuestDirectDownload,
+          (CloudPlatform.uc, true) => false,
+          _ => false,
+        };
+      },
     );
     login = AccountLoginService(
       vault,
       (p, c) => cloud.connector(p).account(c),
       checkAccess: control.checkCloud,
       webAuthenticators: {
+        CloudPlatform.ctfile:
+            (cloud.connector(CloudPlatform.ctfile) as CtfileConnector)
+                .authenticate,
+        CloudPlatform.lanzou:
+            (cloud.connector(CloudPlatform.lanzou) as LanzouConnector)
+                .authenticate,
         CloudPlatform.pan115:
             (cloud.connector(CloudPlatform.pan115) as Pan115Connector)
                 .authenticate,
@@ -150,6 +171,7 @@ class AppServices extends ChangeNotifier {
       http: transfer,
       refreshSource: cloud.refresh,
       checkNewCloudTask: control.checkCloud,
+      onGuestDownload: requestGuestDownloadNotice,
       foreground: platformFeatures && (Platform.isAndroid || Platform.isWindows)
           ? (activity) async {
               try {
@@ -166,6 +188,19 @@ class AppServices extends ChangeNotifier {
     windows =
         windowsActions ??
         WindowsActions(supported: platformFeatures && Platform.isWindows);
+    appUpdates = AppUpdateService(
+      platform: control.platform,
+      cloud: cloud,
+      downloads: downloads,
+      files: files,
+      installer: AppUpdateInstaller(
+        platform: control.platform,
+        windows: windows,
+      ),
+      currentUpdate: () => control.availableUpdate,
+      inForeground: () => control.inForeground,
+      openDownloads: requestDownloadManager,
+    );
     downloadShutdown = DownloadShutdown(
       supported: windows.supported,
       changes: downloads,
@@ -207,6 +242,7 @@ class AppServices extends ChangeNotifier {
   late final BackupRepository backup;
   late final GopeedEngine engine;
   late final DownloadManager downloads;
+  late final AppUpdateService appUpdates;
   late final WindowsActions windows;
   late final DownloadShutdown downloadShutdown;
   late final DownloadOverlay downloadOverlay;
@@ -218,6 +254,13 @@ class AppServices extends ChangeNotifier {
   final accountNeedsLogin = <CloudPlatform>{};
   final sharedText = ValueNotifier<String?>(null);
   final downloadNavigation = ValueNotifier<int>(0);
+  final guestDownloadNotice = ValueNotifier<bool>(false);
+
+  void requestGuestDownloadNotice() {
+    if (!_closed && !settings.hideGuestDownloadNotice) {
+      guestDownloadNotice.value = true;
+    }
+  }
 
   void requestDownloadManager() {
     if (!_closed) downloadNavigation.value++;
@@ -588,6 +631,7 @@ class AppServices extends ChangeNotifier {
     downloadShutdown.close();
     await downloadOverlay.close();
     control.removeListener(_controlChanged);
+    appUpdates.close();
     control.close();
     await control.flushCache();
     await downloads.close();
@@ -596,6 +640,7 @@ class AppServices extends ChangeNotifier {
     clipboard.dispose();
     externalOpens.dispose();
     downloadNavigation.dispose();
+    guestDownloadNotice.dispose();
     store.removeListener(_changed);
     await _webEnvironment?.dispose();
     await _instanceLock?.close();

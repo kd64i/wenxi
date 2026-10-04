@@ -191,10 +191,30 @@ class LanzouPage {
       '';
 
   String get ajaxUrl {
+    // New iframe templates assign the endpoint through an alias inside a
+    // domain-selection branch. Resolve only plain variable assignments; never
+    // evaluate page scripts or pick unrelated URL literals from the page.
+    final aliases = <String, List<String>>{};
+    for (final match in RegExp(
+      r'\b([A-Za-z_$][\w$]*)\s*=\s*([A-Za-z_$][\w$]*)\s*;',
+    ).allMatches(script)) {
+      aliases.putIfAbsent(match[1]!, () => []).add(match[2]!);
+    }
+    String resolve(String name, Set<String> seen) {
+      if (seen.length >= 32 || !seen.add(name)) return '';
+      final literal = variables[name];
+      if (literal != null) return literal;
+      for (final target in (aliases[name] ?? <String>[]).reversed) {
+        final value = resolve(target, {...seen});
+        if (value.isNotEmpty) return value;
+      }
+      return '';
+    }
+
     for (final match in RegExp(
       r'''(?:\burl|['"]url['"])\s*:\s*('(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|[A-Za-z_$][\w$]*)''',
     ).allMatches(script)) {
-      final value = _literal(match[1]!) ?? variables[match[1]!] ?? '';
+      final value = _literal(match[1]!) ?? resolve(match[1]!, {});
       final uri = Uri.tryParse(value);
       if (uri != null &&
           RegExp(r'(?:^|/)ajax(?:m|file)\.php$').hasMatch(uri.path) &&

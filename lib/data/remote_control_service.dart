@@ -58,6 +58,7 @@ class RemoteControlService extends ChangeNotifier {
     defaultValue: false,
   );
   static const refreshInterval = Duration(minutes: 15);
+  static const announcementMuteDuration = Duration(days: 7);
   static const legacyRestrictionLifetime = Duration(days: 7);
   static const retryDelays = [
     Duration(seconds: 10),
@@ -85,12 +86,13 @@ class RemoteControlService extends ChangeNotifier {
   Future<ControlRefreshResult>? _pending;
   Future<void>? _cacheWriting;
   Json? _cacheToSave;
-  Timer? _pollTimer, _expiryTimer, _announcementDayTimer, _cacheRetryTimer;
+  Timer? _pollTimer, _expiryTimer, _announcementTimer, _cacheRetryTimer;
   int _failures = 0, _saveFailures = 0;
   bool _closed = false, _foreground = false, _loadedFromCache = false;
   String? _lastError, _lastFailure, _errorPath, _saveError;
   final _dismissedAnnouncements = <String, String>{};
-  String? _announcementMutedDate;
+  String? _announcementMutedContentKey;
+  DateTime? _announcementMutedUntil;
   final _dismissedUpdates = <int>{};
   final _ignoredUpdates = <String, int>{};
   final _dismissedGithubUpdates = <String>{};
@@ -168,6 +170,8 @@ class RemoteControlService extends ChangeNotifier {
                   entry.value.build,
                   entry.value.downloadUrl,
                   entry.value.notes,
+                  inAppDownloadUrl: entry.value.inAppDownloadUrl,
+                  inAppPasscode: entry.value.inAppPasscode,
                 )
               : entry.value,
       },
@@ -191,12 +195,20 @@ class RemoteControlService extends ChangeNotifier {
         '${today.day.toString().padLeft(2, '0')}';
   }
 
-  bool get announcementsMutedToday =>
-      _announcementMutedDate == _localAnnouncementDate;
+  bool isAnnouncementMuted(RemoteAnnouncement notice) =>
+      _announcementMutedContentKey == notice.contentKey &&
+      _announcementMutedUntil != null &&
+      clock().isBefore(_announcementMutedUntil!);
+
+  bool get announcementMuted {
+    final notice = config.announcement;
+    return notice != null && isAnnouncementMuted(notice);
+  }
+
   RemoteAnnouncement? get unreadAnnouncement {
     final notice = config.announcement;
     return notice == null ||
-            announcementsMutedToday ||
+            isAnnouncementMuted(notice) ||
             _dismissedAnnouncements[notice.contentKey] == _localAnnouncementDate
         ? null
         : notice;
@@ -316,9 +328,17 @@ class RemoteControlService extends ChangeNotifier {
     }
     final seen = store.data.obj(seenKey);
     if (seen['endpoint'] != _endpoint.toString()) return;
-    final mutedDate = seen['announcementMutedDate'];
-    if (mutedDate is String && mutedDate == _localAnnouncementDate) {
-      _announcementMutedDate = mutedDate;
+    // Legacy day-wide mutes have no content identity and must not hide updates.
+    final mute = seen.obj('announcementMute');
+    final contentKey = mute['contentKey'], until = mute['until'];
+    final now = clock().millisecondsSinceEpoch;
+    if (contentKey is String &&
+        RegExp(r'^[a-f0-9]{64}$').hasMatch(contentKey) &&
+        until is int &&
+        until > now &&
+        until <= now + announcementMuteDuration.inMilliseconds) {
+      _announcementMutedContentKey = contentKey;
+      _announcementMutedUntil = DateTime.fromMillisecondsSinceEpoch(until);
     }
     final ignored = seen['ignoredUpdates'];
     if (ignored is Map) {
@@ -361,7 +381,7 @@ class RemoteControlService extends ChangeNotifier {
   void _cancelTimers() {
     _pollTimer?.cancel();
     _expiryTimer?.cancel();
-    _announcementDayTimer?.cancel();
+    _announcementTimer?.cancel();
     _cacheRetryTimer?.cancel();
   }
 
@@ -395,14 +415,18 @@ class RemoteControlService extends ChangeNotifier {
     }
     if (_cached?.announcement != null) {
       final local = now.toLocal();
-      _announcementDayTimer = Timer(
-        DateTime(local.year, local.month, local.day + 1).difference(local),
-        () {
-          if (_closed || !_foreground) return;
-          notifyListeners();
-          _schedule();
-        },
-      );
+      var next = DateTime(local.year, local.month, local.day + 1);
+      final mutedUntil = _announcementMutedUntil;
+      if (isAnnouncementMuted(_cached!.announcement!) &&
+          mutedUntil != null &&
+          mutedUntil.isBefore(next)) {
+        next = mutedUntil;
+      }
+      _announcementTimer = Timer(until(next), () {
+        if (_closed || !_foreground) return;
+        notifyListeners();
+        _schedule();
+      });
     }
     if (_cacheToSave != null && _cacheWriting == null && _nextSave != null) {
       _cacheRetryTimer = Timer(until(_nextSave), _startCacheSave);
@@ -610,7 +634,7 @@ class RemoteControlService extends ChangeNotifier {
 
   Future<void> dismissAnnouncement(
     RemoteAnnouncement notice, {
-    bool hideForToday = false,
+    bool hideForWeek = false,
   }) async {
     if (_closed || !configured) return;
     final today = _localAnnouncementDate;
@@ -618,10 +642,17 @@ class RemoteControlService extends ChangeNotifier {
     while (_dismissedAnnouncements.length > 64) {
       _dismissedAnnouncements.remove(_dismissedAnnouncements.keys.first);
     }
-    final mutedDate = hideForToday ? today : null;
-    final changed = _announcementMutedDate != mutedDate;
-    _announcementMutedDate = mutedDate;
+    final mutedKey = hideForWeek ? notice.contentKey : null;
+    final mutedUntil = hideForWeek
+        ? clock().add(announcementMuteDuration)
+        : null;
+    final changed =
+        _announcementMutedContentKey != mutedKey ||
+        _announcementMutedUntil != mutedUntil;
+    _announcementMutedContentKey = mutedKey;
+    _announcementMutedUntil = mutedUntil;
     notifyListeners();
+    _schedule();
     // An ordinary close lasts for this run and day only. Only the explicit
     // checkbox is persisted; manually reopening also lets the user clear it.
     if (changed) await _saveSeen();
@@ -683,8 +714,12 @@ class RemoteControlService extends ChangeNotifier {
         if (_closed) return;
         draft[seenKey] = {
           'endpoint': _endpoint.toString(),
-          if (_announcementMutedDate != null)
-            'announcementMutedDate': _announcementMutedDate,
+          if (_announcementMutedContentKey != null &&
+              _announcementMutedUntil != null)
+            'announcementMute': {
+              'contentKey': _announcementMutedContentKey,
+              'until': _announcementMutedUntil!.millisecondsSinceEpoch,
+            },
           'ignoredUpdates': Map<String, int>.from(_ignoredUpdates),
           if (_ignoredGithubUpdates.isNotEmpty)
             'ignoredGithubUpdates': _ignoredGithubUpdates.toList(),

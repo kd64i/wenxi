@@ -239,7 +239,7 @@ void main() {
   );
 
   test(
-    'Today mute and ignored updates survive restart; new notices respect the daily mute',
+    'Week mute and ignored updates survive restart; ID-only changes keep the mute',
     () async {
       fetcher.text = jsonEncode(
         controlJson(noticeId: 'a', androidBuild: 45, windowsBuild: 55),
@@ -247,7 +247,7 @@ void main() {
       await control.refresh(force: true);
       await control.dismissAnnouncement(
         control.config.announcement!,
-        hideForToday: true,
+        hideForWeek: true,
       );
       await control.ignoreUpdate(45);
       final reopened = RemoteControlService(
@@ -280,6 +280,8 @@ void main() {
       expect(reopened.unreadAnnouncement, isNull);
       expect(reopened.unreadUpdate!.build, 46);
       now = now.add(const Duration(days: 1));
+      expect(reopened.unreadAnnouncement, isNull);
+      now = now.add(const Duration(days: 6));
       expect(reopened.unreadAnnouncement!.id, 'b');
     },
   );
@@ -405,9 +407,9 @@ void main() {
     await control.refresh(force: true);
     await control.dismissAnnouncement(control.config.announcement!);
     expect(control.unreadAnnouncement, isNull);
-    expect(control.announcementsMutedToday, isFalse);
+    expect(control.announcementMuted, isFalse);
     expect(
-      store.data.obj(RemoteControlService.seenKey)['announcementMutedDate'],
+      store.data.obj(RemoteControlService.seenKey)['announcementMute'],
       isNull,
     );
     control.setForeground(false);
@@ -446,31 +448,32 @@ void main() {
       expect(control.unreadAnnouncement!.content, '一条新的公告内容');
       await control.dismissAnnouncement(
         control.config.announcement!,
-        hideForToday: true,
+        hideForWeek: true,
       );
       final newer = controlJson(revision: 4, noticeId: 'third');
-      (newer['announcement'] as Map)['content'] = '当天发布的新公告也遵守免打扰';
+      (newer['announcement'] as Map)['content'] = '公告内容更新后重新显示';
       fetcher.text = jsonEncode(newer);
       await control.refresh(force: true);
-      expect(control.unreadAnnouncement, isNull);
-      expect(control.config.announcement!.content, '当天发布的新公告也遵守免打扰');
+      expect(control.unreadAnnouncement!.content, '公告内容更新后重新显示');
+      expect(control.announcementMuted, isFalse);
     },
   );
 
   test(
-    'Today mute persists until local midnight, not for a rolling 24 hours',
+    'Week mute lasts exactly seven days across midnight, restart and UTC clocks',
     () async {
       now = DateTime(2026, 12, 31, 23, 59, 59);
       fetcher.text = jsonEncode(controlJson(noticeId: 'a'));
       await control.refresh(force: true);
       await control.dismissAnnouncement(
         control.config.announcement!,
-        hideForToday: true,
+        hideForWeek: true,
       );
-      expect(
-        store.data.obj(RemoteControlService.seenKey)['announcementMutedDate'],
-        '2026-12-31',
-      );
+      final deadline = now.add(const Duration(days: 7));
+      expect(store.data.obj(RemoteControlService.seenKey)['announcementMute'], {
+        'contentKey': control.config.announcement!.contentKey,
+        'until': deadline.millisecondsSinceEpoch,
+      });
       final reopened = RemoteControlService(
         StateStore.memory(jsonDecode(jsonEncode(store.data))),
         enabled: true,
@@ -480,23 +483,80 @@ void main() {
         clock: () => now.toUtc(),
       );
       addTearDown(reopened.close);
-      expect(reopened.announcementsMutedToday, isTrue);
+      expect(reopened.announcementMuted, isTrue);
       expect(reopened.unreadAnnouncement, isNull);
       now = DateTime(2027, 1, 1);
-      expect(control.announcementsMutedToday, isFalse);
+      expect(control.unreadAnnouncement, isNull);
+      expect(reopened.unreadAnnouncement, isNull);
+      now = deadline.subtract(const Duration(milliseconds: 1));
+      expect(control.announcementMuted, isTrue);
+      expect(reopened.unreadAnnouncement, isNull);
+      now = deadline;
+      expect(control.announcementMuted, isFalse);
       expect(control.unreadAnnouncement, isNotNull);
       expect(reopened.unreadAnnouncement, isNotNull);
     },
   );
 
+  for (final field in ['title', 'content', 'buttonText', 'buttonUrl']) {
+    test(
+      'Changing $field bypasses a saved week mute with the same ID and revision',
+      () async {
+        final document = controlJson(
+          noticeId: 'a',
+          buttonText: '查看详情',
+          buttonUrl: 'https://example.test/notice',
+        );
+        fetcher.text = jsonEncode(document);
+        await control.refresh(force: true);
+        await control.dismissAnnouncement(
+          control.config.announcement!,
+          hideForWeek: true,
+        );
+        final reopened = RemoteControlService(
+          StateStore.memory(jsonDecode(jsonEncode(store.data))),
+          enabled: true,
+          platform: 'android',
+          currentBuild: 44,
+          configUrl: controlEndpoint,
+          fetcher: fetcher,
+          clock: () => now,
+        );
+        addTearDown(reopened.close);
+        expect(reopened.unreadAnnouncement, isNull);
+        (document['announcement'] as Map)[field] = field == 'buttonUrl'
+            ? 'https://example.test/new-notice'
+            : '更新后的公告';
+        fetcher.text = jsonEncode(document);
+        await reopened.refresh(force: true);
+        expect(reopened.unreadAnnouncement, isNotNull);
+        expect(reopened.announcementMuted, isFalse);
+      },
+    );
+  }
+
   test(
-    'Daily mute belongs to the endpoint and ignores stale, future or malformed values',
-    () {
+    'Week mute belongs to the endpoint and ignores expired, legacy or malformed values',
+    () async {
+      fetcher.text = jsonEncode(controlJson(noticeId: 'a'));
+      await control.refresh(force: true);
+      final key = control.config.announcement!.contentKey;
+      final stamp = now.millisecondsSinceEpoch;
+      final validUntil = now
+          .add(const Duration(days: 7))
+          .millisecondsSinceEpoch;
       for (final muted in [
-        '2026-09-18',
-        '2026-09-20',
-        '2026-9-19',
-        20260919,
+        {'contentKey': key, 'until': stamp - 1},
+        {'contentKey': key, 'until': stamp},
+        {'contentKey': key, 'until': validUntil + 1},
+        {'contentKey': key, 'until': '$validUntil'},
+        {'contentKey': key, 'until': true},
+        {'contentKey': key, 'until': 999999999999999999},
+        {'contentKey': 'invalid', 'until': validUntil},
+        {'contentKey': 123, 'until': validUntil},
+        {'until': validUntil},
+        {'contentKey': key},
+        '2026-09-19',
         true,
         null,
         [],
@@ -506,7 +566,8 @@ void main() {
             ...controlCache(controlJson(noticeId: 'a')),
             RemoteControlService.seenKey: {
               'endpoint': controlEndpoint,
-              'announcementMutedDate': muted,
+              'announcementMute': muted,
+              'announcementMutedDate': '2026-09-19',
             },
           }),
           enabled: true,
@@ -523,7 +584,7 @@ void main() {
           ...controlCache(controlJson(noticeId: 'a')),
           RemoteControlService.seenKey: {
             'endpoint': 'https://other.example.test/control.json',
-            'announcementMutedDate': '2026-09-19',
+            'announcementMute': {'contentKey': key, 'until': validUntil},
           },
         }),
         enabled: true,
@@ -545,10 +606,10 @@ void main() {
       await control.ignoreUpdate(50);
       await control.dismissAnnouncement(
         control.config.announcement!,
-        hideForToday: true,
+        hideForWeek: true,
       );
       await control.dismissAnnouncement(control.config.announcement!);
-      expect(control.announcementsMutedToday, isFalse);
+      expect(control.announcementMuted, isFalse);
       expect(control.unreadAnnouncement, isNull);
       expect(control.unreadUpdate, isNull);
       final reopened = RemoteControlService(
@@ -566,10 +627,10 @@ void main() {
   );
 
   testWidgets(
-    'A foreground midnight notifies observers when the daily mute expires',
+    'Foreground observers are notified at the seven-day deadline during the day',
     (tester) async {
       control.close();
-      now = DateTime(2026, 9, 19, 23, 59, 59);
+      now = DateTime(2026, 9, 19, 12, 34, 56);
       final state = StateStore.memory(
         controlCache(controlJson(noticeId: 'a'), fetched: now),
       );
@@ -586,14 +647,19 @@ void main() {
       await tester.pump();
       final dismissed = control.dismissAnnouncement(
         control.config.announcement!,
-        hideForToday: true,
+        hideForWeek: true,
       );
       await tester.pump();
       await dismissed;
       expect(control.unreadAnnouncement, isNull);
+      control.setForeground(false);
+      now = now.add(const Duration(days: 7, seconds: -1));
+      control.setForeground(true);
+      await tester.pump();
+      expect(control.unreadAnnouncement, isNull);
       var notifications = 0;
       control.addListener(() => notifications++);
-      now = DateTime(2026, 9, 20);
+      now = now.add(const Duration(seconds: 1));
       await tester.pump(const Duration(seconds: 1));
       expect(notifications, greaterThan(0));
       expect(control.unreadAnnouncement, isNotNull);

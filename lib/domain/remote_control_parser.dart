@@ -31,6 +31,8 @@ class ControlConfigIssue {
           'version',
           'build',
           'downloadUrl',
+          'inAppDownloadUrl',
+          'inAppPasscode',
           'notes',
           'force',
           'expiresAt',
@@ -221,6 +223,8 @@ class RemoteControlDocument {
           if (build < 1) f.fail('build', '启用更新需要正整数 build');
           final url = f.link('downloadUrl', f.string('downloadUrl', 2048));
           final force = f.boolean('force', fallback: false);
+          final appUrl = f.string('inAppDownloadUrl', 2048);
+          final passcode = f.string('inAppPasscode', 32).trim();
           return RemoteUpdate(
             version,
             build,
@@ -228,6 +232,10 @@ class RemoteControlDocument {
             f.string('notes', 8192),
             force: force,
             expiresAt: force ? f.expiry() : null,
+            inAppDownloadUrl: appUrl.isEmpty
+                ? null
+                : f.link('inAppDownloadUrl', appUrl),
+            inAppPasscode: passcode,
           );
         },
         (u) => u == null

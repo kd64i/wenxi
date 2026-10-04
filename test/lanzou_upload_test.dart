@@ -22,6 +22,205 @@ const _session = BrowseSession(
 );
 
 void main() {
+  test('Folder rename preserves its existing description', () async {
+    final http = FakeHttp((r) {
+      if (r.uri.path == '/mydisk.php') return const HttpResult(200, _page);
+      final fields = Uri.splitQueryString(r.body as String);
+      if (fields['task'] == '18') {
+        expect(fields['folder_id'], '1');
+        return jsonResponse({
+          'zt': 1,
+          'info': {'des': 'original description'},
+        });
+      }
+      expect(fields['task'], '4');
+      expect(fields['folder_description'], 'original description');
+      expect(fields['folder_name'], 'new name');
+      return jsonResponse({'zt': 1});
+    });
+    await LanzouConnector(http).rename(
+      _session,
+      const CloudFile(id: 'd:1', name: 'old name', isDirectory: true),
+      'new name',
+      _credential(),
+    );
+  });
+
+  test(
+    'Folder sharing uses folder_id and can set a retrieval password',
+    () async {
+      final tasks = <String>[];
+      final http = FakeHttp((r) {
+        if (r.uri.path == '/mydisk.php') return const HttpResult(200, _page);
+        final fields = Uri.splitQueryString(r.body as String);
+        tasks.add(fields['task']!);
+        expect(fields['folder_id'], '123');
+        expect(fields.containsKey('file_id'), false);
+        if (fields['task'] == '16') {
+          expect(fields['shows'], '1');
+          expect(fields['shownames'], 'a7B9');
+          return jsonResponse({'zt': 1});
+        }
+        return jsonResponse({
+          'zt': 1,
+          'info': {
+            'new_url': 'https://wwanc.lanzouq.com/b02vrzkcrg',
+            'pwd': 'a7B9',
+          },
+        });
+      });
+      final share = await LanzouConnector(http).createShare(
+        _session,
+        [const CloudFile(id: 'd:123', name: 'folder', isDirectory: true)],
+        const ShareOptions('folder', passcode: 'a7B9'),
+        _credential(),
+      );
+      expect(tasks, ['16', '18']);
+      expect(share.passcode, 'a7B9');
+    },
+  );
+
+  test('Membership rejection retains the server explanation', () async {
+    final http = FakeHttp(
+      (r) => r.uri.path == '/mydisk.php'
+          ? const HttpResult(200, _page)
+          : jsonResponse({'zt': 0, 'info': '此功能仅会员使用，请先开通会员'}),
+    );
+    await expectLater(
+      LanzouConnector(http).rename(
+        _session,
+        const CloudFile(id: 'f:1', name: 'old.zip'),
+        'new.zip',
+        _credential(),
+      ),
+      throwsA(
+        isA<AppException>().having(
+          (e) => e.message,
+          'message',
+          contains('仅会员使用'),
+        ),
+      ),
+    );
+  });
+
+  test(
+    'Recursive deletion reads the subtree then removes children before parents',
+    () async {
+      final deletions = <String>[];
+      final http = FakeHttp((r) {
+        if (r.uri.path == '/mydisk.php') return const HttpResult(200, _page);
+        final fields = Uri.splitQueryString(r.body as String);
+        if (fields['task'] == '47') {
+          expect(deletions, isEmpty);
+          return jsonResponse({
+            'zt': 1,
+            'text': fields['folder_id'] == '1'
+                ? [
+                    {'fol_id': '2', 'name': 'child'},
+                  ]
+                : [],
+          });
+        }
+        if (fields['task'] == '5') {
+          expect(deletions, isEmpty);
+          return jsonResponse({
+            'zt': 1,
+            'text': fields['folder_id'] == '2' && fields['pg'] == '1'
+                ? [
+                    {'id': '3', 'name_all': 'fixture.zip', 'size': '1 K'},
+                  ]
+                : [],
+          });
+        }
+        deletions.add(
+          '${fields['task']}:${fields['folder_id'] ?? fields['file_id']}',
+        );
+        return jsonResponse({'zt': 1});
+      });
+      await LanzouConnector(http).delete(_session, [
+        const CloudFile(id: 'd:1', name: 'parent', isDirectory: true),
+        const CloudFile(id: 'd:2', name: 'child', isDirectory: true),
+      ], _credential());
+      expect(deletions, ['6:3', '3:2', '3:1']);
+    },
+  );
+
+  test('A subtree listing error prevents any deletion', () async {
+    final http = FakeHttp((r) {
+      if (r.uri.path == '/mydisk.php') return const HttpResult(200, _page);
+      final fields = Uri.splitQueryString(r.body as String);
+      expect(fields['task'], '47');
+      return jsonResponse({'zt': 0, 'info': '读取目录失败'});
+    });
+    await expectLater(
+      LanzouConnector(http).delete(_session, [
+        const CloudFile(id: 'f:3', name: 'fixture.zip'),
+        const CloudFile(id: 'd:1', name: 'folder', isDirectory: true),
+      ], _credential()),
+      throwsA(isA<AppException>()),
+    );
+  });
+
+  test(
+    'Browser login validates file access and retains renewed cookies and identity',
+    () async {
+      final http = FakeHttp((r) {
+        if (r.uri.path == '/mydisk.php') {
+          return const HttpResult(200, _page, {
+            'Set-Cookie': ['phpdisk_info=renewed; Path=/; HttpOnly'],
+          });
+        }
+        expect(r.uri.path, '/doupload.php');
+        expect(r.headers['Cookie'], contains('phpdisk_info=renewed'));
+        expect(Uri.splitQueryString(r.body as String), {
+          'task': '5',
+          'folder_id': '-1',
+          'pg': '1',
+        });
+        return jsonResponse({'zt': 2, 'text': []});
+      });
+      final result = await LanzouConnector(http).authenticate(_credential());
+      expect(result.credential.primary, contains('phpdisk_info=renewed'));
+      expect(result.credential.field('userId'), '12345');
+      expect(result.credential.updatedAt, 42);
+      expect(http.calls, hasLength(2));
+    },
+  );
+
+  test(
+    'A visible disk page does not count as login when file access is denied',
+    () async {
+      final http = FakeHttp(
+        (r) => r.uri.path == '/mydisk.php'
+            ? const HttpResult(200, _page)
+            : jsonResponse({'zt': 9}),
+      );
+      await expectLater(
+        LanzouConnector(http).authenticate(_credential()),
+        throwsA(isA<AccountLoginRequired>()),
+      );
+    },
+  );
+
+  test('Login scans management paths and the official accounts host', () {
+    final target = WebLoginTarget.targets[CloudPlatform.lanzou]!;
+    expect(target.url, 'https://pc.woozooo.com/account.php?action=login');
+    final urls = target.cookieUrls(
+      'https://accounts.woozooo.com/accounts.php?action=login',
+    );
+    expect(urls.first, 'https://pc.woozooo.com/mydisk.php');
+    expect(urls, contains('https://accounts.woozooo.com/accounts.php'));
+    expect(
+      target.cookieUrls('https://evil.example/mydisk.php'),
+      isNot(contains('https://evil.example/mydisk.php')),
+    );
+    final cookie = LoginCredentials.fromBrowser(
+      CloudPlatform.lanzou,
+      cookies: ['ylogin=owner; phpdisk_info=path-cookie', 'phpdisk_info=stale'],
+    );
+    expect(cookie, contains('phpdisk_info=path-cookie'));
+    expect(cookie, isNot(contains('stale')));
+  });
   test(
     'Lanzou personal login and account parameters preserve anonymous sharing',
     () {

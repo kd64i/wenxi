@@ -49,6 +49,7 @@ app.*.map.json
 
 # Generated Android plugin caches and reports.
 **/.gradle/
+/.gradle-build-cache*/
 **/.cxx/
 /vendor_plugins/*/android/build/
 

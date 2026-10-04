@@ -331,13 +331,22 @@ class _DownloadsPageState extends State<DownloadsPage>
                       child: ListView.builder(
                         physics: const AlwaysScrollableScrollPhysics(),
                         key: const PageStorageKey('downloads'),
+                        padding: EdgeInsets.only(
+                          bottom: 12 + MediaQuery.paddingOf(context).bottom,
+                        ),
                         itemCount: tasks.length,
                         itemBuilder: (context, index) =>
                             _row(context, tasks[index]),
                       ),
                     ),
             ),
-            if (_selecting) _selectionActions(),
+            if (_selecting)
+              Padding(
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.paddingOf(context).bottom,
+                ),
+                child: _selectionActions(),
+              ),
           ],
         ),
       );

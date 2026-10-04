@@ -1,4 +1,4 @@
-import 'dart:ui' show ImageFilter;
+import 'liquid_bottom_navigation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'common.dart';
@@ -124,58 +124,10 @@ class AppNavigation extends StatelessWidget {
       );
     }
 
-    return SafeArea(
-      top: false,
-      minimum: const EdgeInsets.fromLTRB(16, 10, 16, 12),
-      child: Align(
-        heightFactor: 1,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 560),
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(60),
-              boxShadow: [
-                BoxShadow(
-                  color: (dark ? Colors.black : const Color(0xff27364b))
-                      .withValues(alpha: dark ? .3 : .11),
-                  blurRadius: 26,
-                  offset: const Offset(0, 8),
-                ),
-              ],
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(60),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                child: Material(
-                  key: const Key('floating-navigation'),
-                  color: (dark ? const Color(0xff202228) : Colors.white)
-                      .withValues(alpha: dark ? .55 : .42),
-                  shape: StadiumBorder(
-                    side: BorderSide(
-                      color: Colors.white.withValues(alpha: dark ? .16 : .7),
-                      width: .7,
-                    ),
-                  ),
-                  clipBehavior: Clip.antiAlias,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 6,
-                      vertical: 2,
-                    ),
-                    child: Row(
-                      children: [
-                        for (var i = 0; i < destinations.length; i++)
-                          Expanded(child: item(i)),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
+    return LiquidBottomNavigation(
+      selectedIndex: selectedIndex,
+      onSelected: onSelected,
+      destinations: destinations,
     );
   }
 }

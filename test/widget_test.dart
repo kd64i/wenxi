@@ -12,6 +12,7 @@ import 'package:asterlink/domain/downloads.dart';
 import 'package:asterlink/ui/login_page.dart';
 import 'package:asterlink/ui/guangya_sms_login_page.dart';
 import 'package:asterlink/ui/cloud_page.dart';
+import 'package:asterlink/ui/experimental_features_page.dart';
 import 'package:asterlink/ui/browser_page.dart';
 import 'package:asterlink/ui/player_page.dart';
 import 'package:asterlink/platform/file_access.dart';
@@ -228,11 +229,7 @@ void main() {
       // Account reservation is persisted before opening the login route. Keep
       // this write on the same real event loop as the fixture's storage.
       await tester.runAsync(() async {
-        await tester.tap(
-          platform == CloudPlatform.lanzou
-              ? find.byTooltip('蓝奏云账号操作')
-              : find.text(title),
-        );
+        await tester.tap(find.text(title));
         await Future<void>.delayed(const Duration(milliseconds: 20));
       });
       await tester.pumpAndSettle();
@@ -361,7 +358,7 @@ void main() {
         const Offset(0, -180),
       );
       await tester.pumpAndSettle();
-      expect(find.text('支持不登录解析'), findsOneWidget);
+      expect(find.text('网页登录管理文件 · 分享免登录'), findsOneWidget);
       expect(find.byTooltip('蓝奏云账号操作'), findsOneWidget);
       await tester.tap(find.byTooltip('蓝奏云解析'));
       await tester.pumpAndSettle();
@@ -522,6 +519,59 @@ void main() {
       }
     });
   }
+  testWidgets(
+    'Experimental download settings open separately and preserve independent switches',
+    (tester) async {
+      final services = await render(tester, const Size(393, 864), 3);
+      expect(find.byType(ExperimentalFeaturesPage), findsNothing);
+      expect(find.text('突破文件大小限制'), findsNothing);
+      await tester.tap(find.text('实验性功能'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ExperimentalFeaturesPage), findsOneWidget);
+      expect(find.byType(SwitchListTile), findsNWidgets(3));
+      expect(find.text('突破文件大小限制'), findsOneWidget);
+      expect(find.text('游客下载'), findsNWidgets(2));
+      expect(find.textContaining('修改后自动保存'), findsNothing);
+      expect(find.textContaining('50 MB'), findsOneWidget);
+      expect(find.textContaining('游客下载不限制文件大小'), findsOneWidget);
+      expect(services.settings.quarkAuthenticatedDirectDownload, isFalse);
+      expect(services.settings.quarkGuestDirectDownload, isFalse);
+      expect(services.settings.ucGuestDirectDownload, isFalse);
+
+      final quarkSwitch = find.byKey(
+        const ValueKey('quarkAuthenticatedDirectDownload'),
+      );
+      await tester.runAsync(() async {
+        await tester.tap(quarkSwitch);
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      });
+      await tester.pumpAndSettle();
+      expect(tester.widget<SwitchListTile>(quarkSwitch).value, isTrue);
+      expect(services.settings.ucGuestDirectDownload, isFalse);
+      expect(services.settings.quarkGuestDirectDownload, isFalse);
+      Navigator.of(tester.element(find.byType(ExperimentalFeaturesPage))).pop();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('实验性功能'));
+      await tester.pumpAndSettle();
+      expect(tester.widget<SwitchListTile>(quarkSwitch).value, isTrue);
+
+      tester.view.physicalSize = const Size(320, 700);
+      await changeTextScale(tester, 1.8);
+      final ucSwitch = find.byKey(const ValueKey('ucGuestDirectDownload'));
+      await tester.scrollUntilVisible(
+        ucSwitch,
+        200,
+        scrollable: find.descendant(
+          of: find.byType(ExperimentalFeaturesPage),
+          matching: find.byType(Scrollable),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(ucSwitch.hitTestable(), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets(
     'Phone settings theme selection persists and remains usable at large text sizes',
     (tester) async {
@@ -1070,6 +1120,102 @@ void main() {
       await tester.pumpAndSettle();
     }
     expect(http.calls, isEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('All phone pages extend behind the floating navigation', (
+    tester,
+  ) async {
+    await render(tester, const Size(393, 864), 0);
+    for (final (index, pageKey) in [
+      (0, 'parse'),
+      (1, 'cloud-list'),
+      (2, 'downloads'),
+      (3, 'mine'),
+    ]) {
+      await tester.tap(find.byKey(ValueKey('navigation-$index')));
+      await tester.pumpAndSettle();
+      final page = find.byKey(PageStorageKey(pageKey));
+      final bar = find.byKey(const Key('floating-navigation'));
+      expect(
+        tester.getRect(page).bottom,
+        greaterThan(tester.getRect(bar).bottom),
+      );
+      expect(
+        MediaQuery.paddingOf(tester.element(page)).bottom,
+        greaterThanOrEqualTo(64),
+      );
+    }
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'Cloud layout saves reordering and hiding, and can restore defaults',
+    (tester) async {
+      final services = await render(tester, const Size(393, 864), 1);
+      await tester.tap(find.byTooltip('更多操作'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('排序与隐藏'));
+      await tester.pumpAndSettle();
+      final handle = tester.getCenter(
+        find.byType(ReorderableDragStartListener).first,
+      );
+      final drag = await tester.startGesture(handle);
+      await tester.pump();
+      await drag.moveBy(const Offset(0, 120));
+      await tester.pump(const Duration(milliseconds: 500));
+      await drag.up();
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('cloud-visible-quark')));
+      await tester.tap(find.text('完成'));
+      await tester.runAsync(() => services.store.flush());
+      await tester.pumpAndSettle();
+      final saved = services.store.data['cloudListPreferences'] as Map;
+      expect((saved['order'] as List).first, isNot('quark'));
+      expect(saved['hidden'], contains('quark'));
+      expect(find.text('夸克网盘'), findsNothing);
+
+      await tester.tap(find.byTooltip('更多操作'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('排序与隐藏'));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<Switch>(find.byKey(const ValueKey('cloud-visible-quark')))
+            .value,
+        isFalse,
+      );
+      await tester.tap(find.text('恢复默认'));
+      await tester.tap(find.text('完成'));
+      await tester.runAsync(() => services.store.flush());
+      await tester.pumpAndSettle();
+      expect(find.text('夸克网盘'), findsOneWidget);
+      expect(
+        (services.store.data['cloudListPreferences'] as Map)['hidden'],
+        isEmpty,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('All hidden clouds retain a way to restore the list', (
+    tester,
+  ) async {
+    final services = await render(tester, const Size(393, 864), 1);
+    await tester.runAsync(
+      () => services.store.put('cloudListPreferences', {
+        'hidden': [for (final entry in cloudEntries) entry.$3!.name],
+      }),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('暂未显示任何网盘'), findsOneWidget);
+    await tester.tap(find.text('排序与隐藏'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('恢复默认'));
+    await tester.tap(find.text('完成'));
+    await tester.runAsync(() => services.store.flush());
+    await tester.pumpAndSettle();
+    expect(find.text('夸克网盘'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

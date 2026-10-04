@@ -384,7 +384,7 @@ void main() {
   group('UC download responses', () {
     for (final name in ['sample.zip', '视频.mp4']) {
       test(
-        'Share $name transfers before requesting a personal download URL',
+        'Restricted share $name falls back to transfer before personal download',
         () async {
           final staged = <DownloadCleanup>[];
           var polls = 0;
@@ -422,6 +422,9 @@ void main() {
                         },
                 );
               case '/1/clouddrive/file/download':
+                if (r.json.containsKey('pwd_id')) {
+                  return jsonResponse({'status': 400, 'code': 23018}, 400);
+                }
                 expect(polls, 2);
                 expect(r.json, {
                   'fids': ['personal-file'],
@@ -490,7 +493,9 @@ void main() {
           throw StateError('Unexpected request ${r.uri}');
         });
         await expectLater(
-          _connector(http).download(_share, _file, _credential(fresh: true)),
+          _connector(
+            http,
+          ).downloadFallback(_share, _file, _credential(fresh: true)),
           _message('异步任务失败'),
         );
         expect(
@@ -507,7 +512,7 @@ void main() {
           (r) => r.uri.path.endsWith('/config') ? _refresh() : _expired,
         );
         await expectLater(
-          _connector(http).download(_share, _file, _credential()),
+          _connector(http).downloadFallback(_share, _file, _credential()),
           throwsA(isA<AccountLoginRequired>()),
         );
         expect(
@@ -536,7 +541,7 @@ void main() {
     });
 
     test(
-      'Missing share tokens fail before refresh or download calls',
+      'Missing share tokens without original link require reparsing',
       () async {
         final http = FakeHttp();
         await expectLater(
@@ -545,7 +550,7 @@ void main() {
             const CloudFile(id: 'file-1', name: 'sample.zip'),
             _credential(),
           ),
-          _message('下载凭证'),
+          _message('重新解析'),
         );
         expect(http.calls, isEmpty);
       },

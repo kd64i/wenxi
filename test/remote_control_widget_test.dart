@@ -243,7 +243,7 @@ void main() {
   });
 
   scenario(
-    'Today checkbox persists across content refresh, restart and manual reopening',
+    'Week checkbox resets on content refresh and persists across restart and manual reopening',
     (tester) async {
       var now = controlNow;
       final initial = controlJson(noticeId: 'old');
@@ -256,21 +256,23 @@ void main() {
         clock: () => now,
       );
       final checkbox = find.byKey(
-        const ValueKey('control-hide-announcement-today'),
+        const ValueKey('control-hide-announcement-week'),
       );
-      expect(find.text('今天不再显示'), findsOneWidget);
+      expect(find.text('7天不再显示'), findsOneWidget);
       expect(tester.widget<CheckboxListTile>(checkbox).value, isFalse);
       await tester.tap(checkbox);
       await tester.pumpAndSettle();
       final latest = controlJson(revision: 2, noticeId: 'new');
-      (latest['announcement'] as Map)['title'] = '新内容仍遵守当天免打扰';
+      (latest['announcement'] as Map)['title'] = '新内容需要重新确认免打扰';
       fetcher.text = jsonEncode(latest);
       await services!.control.refresh(force: true);
       await tester.pumpAndSettle();
-      expect(tester.widget<CheckboxListTile>(checkbox).value, isTrue);
+      expect(tester.widget<CheckboxListTile>(checkbox).value, isFalse);
+      await tester.tap(checkbox);
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('control-read-announcement')));
       await tester.pumpAndSettle();
-      expect(services!.control.announcementsMutedToday, isTrue);
+      expect(services!.control.announcementMuted, isTrue);
       expect(find.byType(AlertDialog), findsNothing);
       final reopened = RemoteControlService(
         StateStore.memory(jsonDecode(jsonEncode(services!.store.data))),
@@ -283,12 +285,17 @@ void main() {
       expect(reopened.unreadAnnouncement, isNull);
       reopened.close();
       await tapAnnouncement(tester);
-      expect(find.text('新内容仍遵守当天免打扰'), findsOneWidget);
+      expect(find.text('新内容需要重新确认免打扰'), findsOneWidget);
       expect(tester.widget<CheckboxListTile>(checkbox).value, isTrue);
       await tester.tap(find.byKey(const ValueKey('control-read-announcement')));
       await tester.pumpAndSettle();
       services!.control.setForeground(false);
       now = now.add(const Duration(days: 1));
+      services!.control.setForeground(true);
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+      services!.control.setForeground(false);
+      now = now.add(const Duration(days: 6));
       services!.control.setForeground(true);
       await tester.pumpAndSettle();
       expect(
@@ -297,6 +304,32 @@ void main() {
       );
       expect(tester.widget<CheckboxListTile>(checkbox).value, isFalse);
       expect(tester.takeException(), isNull);
+    },
+  );
+
+  scenario(
+    'Changed announcement content automatically opens during a saved week mute',
+    (tester) async {
+      final initial = controlJson(noticeId: 'a');
+      await render(tester, promptHome, config: initial, foreground: true);
+      final checkbox = find.byKey(
+        const ValueKey('control-hide-announcement-week'),
+      );
+      await tester.tap(checkbox);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('control-read-announcement')));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+      await services!.control.refresh(force: true);
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+      (initial['announcement'] as Map)['content'] = '7天内更新的公告应再次显示';
+      fetcher.text = jsonEncode(initial);
+      await services!.control.refresh(force: true);
+      await tester.pumpAndSettle();
+      expect(find.text('7天内更新的公告应再次显示'), findsOneWidget);
+      expect(tester.widget<CheckboxListTile>(checkbox).value, isFalse);
+      expect(services!.control.announcementMuted, isFalse);
     },
   );
 
@@ -327,7 +360,7 @@ void main() {
   );
 
   for (final action in ['link', 'back', 'outside']) {
-    scenario('Today choice is honored when closing the notice by $action', (
+    scenario('Week choice is honored when closing the notice by $action', (
       tester,
     ) async {
       final navigator = GlobalKey<NavigatorState>();
@@ -350,7 +383,7 @@ void main() {
         foreground: true,
       );
       await tester.tap(
-        find.byKey(const ValueKey('control-hide-announcement-today')),
+        find.byKey(const ValueKey('control-hide-announcement-week')),
       );
       await tester.pumpAndSettle();
       if (action == 'link') {
@@ -364,13 +397,13 @@ void main() {
       }
       await tester.pumpAndSettle();
       expect(find.byType(AlertDialog), findsNothing);
-      expect(services!.control.announcementsMutedToday, isTrue);
+      expect(services!.control.announcementMuted, isTrue);
       expect(opened, hasLength(action == 'link' ? 1 : 0));
     });
   }
 
   scenario(
-    'A forced update interrupt does not commit an unconfirmed today checkbox',
+    'A forced update interrupt does not commit an unconfirmed week checkbox',
     (tester) async {
       await render(
         tester,
@@ -379,7 +412,7 @@ void main() {
         foreground: true,
       );
       await tester.tap(
-        find.byKey(const ValueKey('control-hide-announcement-today')),
+        find.byKey(const ValueKey('control-hide-announcement-week')),
       );
       await tester.pumpAndSettle();
       fetcher.text = jsonEncode(
@@ -397,7 +430,7 @@ void main() {
         find.byKey(const ValueKey('control-update-dialog')),
         findsOneWidget,
       );
-      expect(services!.control.announcementsMutedToday, isFalse);
+      expect(services!.control.announcementMuted, isFalse);
       expect(services!.control.unreadAnnouncement, isNotNull);
       fetcher.text = jsonEncode(controlJson(revision: 3, noticeId: 'a'));
       await services!.control.refresh(force: true);
@@ -409,7 +442,7 @@ void main() {
       expect(
         tester
             .widget<CheckboxListTile>(
-              find.byKey(const ValueKey('control-hide-announcement-today')),
+              find.byKey(const ValueKey('control-hide-announcement-week')),
             )
             .value,
         isFalse,

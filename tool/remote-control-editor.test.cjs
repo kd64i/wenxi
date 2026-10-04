@@ -14,6 +14,22 @@ vm.runInContext(script, context);
 const C = context.WenxiConfig;
 const native = value => JSON.parse(JSON.stringify(value));
 const valid = value => assert.deepEqual(native(C.validate(value)), []);
+
+test('Optional in-app update fields roundtrip and count as changed publication content', () => {
+  const before = C.template();
+  before.updates.android = {...before.updates.android,enabled:true,version:'1.2.0',build:120,
+    downloadUrl:'https://example.test/downloads'};
+  const changed = C.clone(before);
+  changed.updates.android.inAppDownloadUrl = 'https://wwanc.lanzouq.com/iabc123';
+  changed.updates.android.inAppPasscode = '1234';
+  valid(changed);
+  const restored = C.normalize(C.parse(JSON.stringify(changed)));
+  assert.equal(restored.updates.android.inAppPasscode,'1234');
+  assert.equal(restored.updates.android.inAppDownloadUrl,changed.updates.android.inAppDownloadUrl);
+  assert.equal(C.samePublishedContent(before,changed),false);
+  changed.updates.android.inAppDownloadUrl = 'http://example.test/app.apk';
+  assert.ok(C.validate(changed).some(e => e.path === 'updates.android.inAppDownloadUrl'));
+});
 const issue = (value, path) => assert.ok(C.validate(value).some(e => e.path === path), `Expected validation error at ${path}`);
 
 test('both embedded scripts parse and the single HTML has no remote dependencies', () => {

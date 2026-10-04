@@ -85,6 +85,11 @@ class LinkParser {
         var url = normalize(raw);
         var uri = Uri.parse(url);
         final platform = CloudPlatform.fromHost(uri.host);
+        if (platform == CloudPlatform.ctfile && raw.contains('](')) {
+          raw = raw.substring(0, raw.indexOf(']('));
+          url = normalize(raw);
+          uri = Uri.parse(url);
+        }
         final unsupported = platform == null
             ? UnsupportedCloudPlatform.fromHost(uri.host)
             : null;
@@ -100,6 +105,9 @@ class LinkParser {
                     (platform == CloudPlatform.lanzou ? match.start : 0);
           if (proseStart != null && proseStart < raw.length) {
             raw = raw.substring(0, proseStart).replaceFirst(_punctuation, '');
+            if (platform == CloudPlatform.ctfile) {
+              raw = raw.replaceFirst(RegExp(r'[(（]+$'), '');
+            }
             url = normalize(raw);
             uri = Uri.parse(url);
           }
@@ -184,6 +192,7 @@ class LinkParser {
         final value = code[1]!;
         if (_isCode(value) &&
             (owner.link.platform == CloudPlatform.lanzou ||
+                owner.link.platform == CloudPlatform.ctfile ||
                 value.length == 4)) {
           // MoePal keeps the last valid label. Embedded URL codes still win.
           owner.link = owner.link.withPasscode(value);
@@ -220,6 +229,9 @@ class LinkParser {
 
   static String? _embeddedCode(String url, Uri uri) {
     final platform = CloudPlatform.fromHost(uri.host);
+    if (platform == CloudPlatform.ctfile) {
+      return _ctfileCode(uri);
+    }
     final lanzou = platform == CloudPlatform.lanzou;
     // VLa: decoded query -> hash-route query -> raw URL -> text labels.
     // See docs/LINK-RECOGNITION.md for addresses and compatibility extensions.
@@ -261,6 +273,33 @@ class LinkParser {
 
   static bool _isCode(String value) =>
       value.isNotEmpty && !{'http', 'https'}.contains(value.toLowerCase());
+
+  static String? _ctfileCode(Uri uri) {
+    for (final part in _parts(uri)) {
+      final parameters = _parameters(part.query);
+      for (final key in ['p', ..._codeKeys, 'accesscode', 'code']) {
+        final value = parameters[key]?.trim();
+        if (value != null && _legacyCode.hasMatch(value) && _isCode(value)) {
+          return value;
+        }
+      }
+    }
+    final fragment = uri.fragment.trim();
+    return _legacyCode.hasMatch(fragment) && _isCode(fragment)
+        ? fragment
+        : null;
+  }
+
+  static String? _ctfileShareId(Uri uri) {
+    // Match only actual share routes, never redirect queries or nested help paths.
+    for (final part in _parts(uri).reversed) {
+      final match = RegExp(
+        r'^/(f|file|d|dir|s)/([A-Za-z0-9]+(?:[-_][A-Za-z0-9]+)*)/?$',
+      ).firstMatch(part.path);
+      if (match != null) return '${match[1]}/${match[2]}';
+    }
+    return null;
+  }
 
   static Map<String, String> _parameters(String query) {
     try {
@@ -332,6 +371,7 @@ class LinkParser {
     }
     final parts = _parts(uri);
     return switch (platform) {
+      CloudPlatform.ctfile => _ctfileShareId(uri),
       CloudPlatform.baidu =>
         _queryId(parts, 'surl') ??
             _pathId(parts, r'/s/[A-Za-z0-9_-]([A-Za-z0-9_-]+)'),

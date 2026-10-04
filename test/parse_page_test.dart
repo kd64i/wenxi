@@ -23,6 +23,8 @@ class _ShareConnector extends CloudConnector {
   final CloudPlatform platform;
   final opened = <ParsedLink>[];
   int lists = 0;
+  int downloads = 0;
+  Credential? downloadCredential;
   Future<void>? openBarrier, listBarrier;
   String? requiredCode;
   Object? failure;
@@ -56,6 +58,21 @@ class _ShareConnector extends CloudConnector {
     return const [
       CloudFile(id: 'video1', name: '第一集.mp4', size: 5000, parentId: 'root'),
     ];
+  }
+
+  @override
+  Future<DownloadSpec> download(
+    BrowseSession session,
+    CloudFile file,
+    Credential? credential,
+  ) async {
+    downloads++;
+    downloadCredential = credential;
+    return DownloadSpec(
+      url: 'https://example.test/guest-file',
+      fileName: file.name,
+      expectedSize: file.size,
+    );
   }
 
   @override
@@ -131,8 +148,11 @@ void main() {
         await tester.pumpWidget(const SizedBox());
         var closed = false;
         services.close().then((_) => closed = true);
-        for (var i = 0; i < 20 && !closed; i++) {
-          await tester.pump();
+        for (var i = 0; i < 100 && !closed; i++) {
+          await tester.pump(const Duration(milliseconds: 100));
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 10)),
+          );
         }
         expect(closed, isTrue);
       }
@@ -274,25 +294,74 @@ void main() {
     'Authentication preflight preserves text and opens the matching configuration',
     (tester) async {
       await render(tester, loggedIn: false);
-      await enter(tester);
+      const loginText = 'https://pan.baidu.com/s/1Abcd?pwd=old1';
+      connector = _ShareConnector(CloudPlatform.baidu);
+      services.cloud.connectors[CloudPlatform.baidu] = connector;
+      await enter(tester, loginText);
       await start(tester);
       expect(find.text('去配置'), findsOneWidget);
       expect(connector.opened, isEmpty);
       await tester.tap(find.text('去配置'));
       await tester.pumpAndSettle();
+      await tester.tap(find.text('继续网页登录'));
+      await tester.pumpAndSettle();
       expect(find.byType(WebLoginPage), findsOneWidget);
       expect(
         tester.widget<WebLoginPage>(find.byType(WebLoginPage)).target.platform,
-        CloudPlatform.quark,
+        CloudPlatform.baidu,
       );
       Navigator.of(tester.element(find.byType(WebLoginPage))).pop();
       await tester.pumpAndSettle();
       expect(code(tester), 'old1');
-      expect(pageKey.currentState!.input.text, text);
+      expect(pageKey.currentState!.input.text, loginText);
       expect(find.text('尚未完成登录，链接和提取码已保留'), findsOneWidget);
       expect(services.store.data.list('history'), isEmpty);
     },
   );
+
+  for (final platform in [CloudPlatform.quark, CloudPlatform.uc]) {
+    scenario(
+      '${platform.key} guest can parse and enqueue a download without a login dialog',
+      (tester) async {
+        await render(tester, loggedIn: false);
+        final guest = _ShareConnector(platform);
+        services.cloud.connectors[platform] = guest;
+        await enter(
+          tester,
+          platform == CloudPlatform.uc
+              ? 'https://drive.uc.cn/s/Abcd?pwd=old1'
+              : text,
+        );
+        await start(tester);
+        expect(find.byType(BrowserPage), findsOneWidget);
+        expect(find.byType(WebLoginPage), findsNothing);
+        expect(find.text('去配置'), findsNothing);
+        expect(guest.opened, hasLength(1));
+        expect(guest.lists, 1);
+        await tester.tap(find.byTooltip('第一集.mp4操作'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('下载').last);
+        await tester.pumpAndSettle();
+        await tester.runAsync(() async {
+          await services.store.flush();
+          for (
+            var attempt = 0;
+            attempt < 30 && guest.downloads == 0;
+            attempt++
+          ) {
+            await Future<void>.delayed(const Duration(milliseconds: 20));
+          }
+        });
+        await tester.pumpAndSettle();
+        expect(services.downloads.tasks, hasLength(1));
+        expect(guest.downloads, greaterThan(0));
+        expect(guest.downloadCredential, isNull);
+        expect(services.vault.credential(platform), isNull);
+        expect(find.byType(WebLoginPage), findsNothing);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 
   for (final p in [CloudPlatform.aliyun, CloudPlatform.guangya]) {
     scenario('${p.key} parses its share with a saved token account', (

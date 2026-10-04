@@ -79,6 +79,7 @@ Future<void> openLogin(
       MaterialPageRoute(
         builder: (_) => switch (platform) {
           CloudPlatform.xunlei ||
+          CloudPlatform.ctfile ||
           CloudPlatform.pan123 ||
           CloudPlatform.tianyi ||
           CloudPlatform.aliyun ||
@@ -180,7 +181,9 @@ class _PasswordLoginFlowState extends State<PasswordLoginFlow> {
       widget.services,
       widget.platform,
       accountId: widget.accountId,
-      onUseWeb: () => _switch(_LoginMethod.web),
+      onUseWeb: widget.platform == CloudPlatform.ctfile
+          ? null
+          : () => _switch(_LoginMethod.web),
       onUseManual: () => _switch(_LoginMethod.manual),
       onUseSms: widget.platform == CloudPlatform.guangya
           ? () => _switch(_LoginMethod.sms)
@@ -671,6 +674,7 @@ class _WebLoginPageState extends State<WebLoginPage>
             () => status = switch (target.platform) {
               CloudPlatform.weiyun => '暂未读取到完整凭据，请刷新网页中的文件列表后再检测',
               CloudPlatform.tianyi => '天翼登录尚未完成，请在网页完成验证码或安全验证后再检测',
+              CloudPlatform.lanzou => '请完成蓝奏网页登录并进入「我的文件」，系统会自动检测并保存登录信息',
               _ => '尚未读取到完整登录信息，请进入网盘首页后再检测',
             },
           );
@@ -1377,7 +1381,9 @@ class _ManualLoginPageState extends State<ManualLoginPage> {
                 ),
               _field(
                 primary,
-                platform == CloudPlatform.xunlei
+                platform == CloudPlatform.ctfile
+                    ? 'Session Token'
+                    : platform == CloudPlatform.xunlei
                     ? 'Access Token'
                     : platform == CloudPlatform.pan123
                     ? passwordMode

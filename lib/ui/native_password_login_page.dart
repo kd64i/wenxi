@@ -9,6 +9,7 @@ import '../core/json.dart';
 import '../data/providers/guangya.dart';
 import '../data/providers/ilanzou.dart';
 import '../data/providers/pan123.dart';
+import '../data/providers/ctfile.dart';
 import '../data/providers/tianyi_captcha.dart';
 import '../data/providers/tianyi_login.dart';
 import '../diagnostics/app_log.dart';
@@ -28,6 +29,7 @@ class NativePasswordLoginPage extends StatefulWidget {
     super.key,
   }) : assert(
          platform == CloudPlatform.pan123 ||
+             platform == CloudPlatform.ctfile ||
              platform == CloudPlatform.tianyi ||
              platform == CloudPlatform.aliyun ||
              platform == CloudPlatform.ilanzou ||
@@ -128,6 +130,10 @@ class _NativePasswordLoginPageState extends State<NativePasswordLoginPage> {
         return;
       }
       await services.login.submit(platform, (_) async {
+        if (platform == CloudPlatform.ctfile) {
+          return (services.cloud.connector(platform) as CtfileConnector)
+              .password(username, password);
+        }
         if (platform == CloudPlatform.pan123) {
           return (services.cloud.connector(platform) as Pan123Connector)
               .password(username, password);
@@ -264,7 +270,9 @@ class _NativePasswordLoginPageState extends State<NativePasswordLoginPage> {
                       autofillHints: const [AutofillHints.username],
                       decoration: InputDecoration(
                         labelText: '账号',
-                        hintText: platform == CloudPlatform.tianyi
+                        hintText: platform == CloudPlatform.ctfile
+                            ? '注册邮箱'
+                            : platform == CloudPlatform.tianyi
                             ? '手机号 / 邮箱 / 别名'
                             : platform == CloudPlatform.guangya
                             ? '手机号 / 邮箱 / 用户名'
@@ -341,6 +349,8 @@ class _NativePasswordLoginPageState extends State<NativePasswordLoginPage> {
                       _working
                           ? _status
                           : switch (platform) {
+                              CloudPlatform.ctfile =>
+                                '支持注册邮箱登录；登录凭据加密保存在本机，过期后请重新登录',
                               CloudPlatform.aliyun =>
                                 '账号密码由官方页面验证并加密记住，登录后自动续期',
                               CloudPlatform.guangya =>

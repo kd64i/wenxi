@@ -35,6 +35,13 @@ enum CloudPlatform {
     'lanzou.com',
     'lanzous.com',
     'lanzoux.com',
+  ]),
+  ctfile('Ctfile', '城通网盘', '城通', 'ctfile', [
+    'ctfile.com',
+    'ctfile.cn',
+    '400gb.com',
+    '545c.com',
+    'pipipan.com',
   ]);
 
   const CloudPlatform(
@@ -50,10 +57,10 @@ enum CloudPlatform {
   bool get canCreateFolder => true;
   bool get supportsFamilyCloud =>
       this == tianyi || this == c139 || this == wopan;
-  bool get supportsPersonalSpaces => this == aliyun;
+  bool get supportsPersonalSpaces => this == aliyun || this == ctfile;
   bool get supportsShareParsing => this != ilanzou && this != weiyun;
   bool get shareRequiresAccount =>
-      !{lanzou, guangya, aliyun, wopan}.contains(this);
+      !{lanzou, guangya, aliyun, wopan, quark, uc, ctfile}.contains(this);
   bool get supportsSharing =>
       this != ilanzou && this != weiyun && this != wopan;
   String get shareUnavailableMessage => '$label暂不支持分享解析，请在网盘页登录后浏览个人文件';
@@ -390,6 +397,8 @@ class DownloadSpec {
     this.source,
     this.profile,
     this.torrent,
+    this.appUpdateKey,
+    this.guestDownload = false,
   });
   final String url, fileName, relativePath;
   final Map<String, String> headers;
@@ -397,6 +406,8 @@ class DownloadSpec {
   final String? checksumType, checksumValue, profile;
   final DownloadCleanup? cleanup;
   final Json? source, torrent;
+  final String? appUpdateKey;
+  final bool guestDownload;
   bool get isTorrent => torrent != null;
   bool get needsPreparation => !isTorrent && url.isEmpty && source != null;
   CloudPlatform? get platform => CloudPlatform.fromKey(
@@ -407,6 +418,8 @@ class DownloadSpec {
     Json? source,
     String? fileName,
     DownloadCleanup? cleanup,
+    String? appUpdateKey,
+    bool? guestDownload,
   }) => DownloadSpec(
     url: url,
     fileName: fileName ?? this.fileName,
@@ -419,6 +432,8 @@ class DownloadSpec {
     source: source ?? this.source,
     profile: profile,
     torrent: torrent,
+    appUpdateKey: appUpdateKey ?? this.appUpdateKey,
+    guestDownload: guestDownload ?? this.guestDownload,
   );
   Json toJson() => {
     'url': url,
@@ -432,6 +447,8 @@ class DownloadSpec {
     'source': source,
     'profile': profile,
     'torrent': torrent,
+    if (appUpdateKey != null) 'appUpdateKey': appUpdateKey,
+    if (guestDownload) 'guestDownload': true,
   };
   factory DownloadSpec.fromJson(Json j) => DownloadSpec(
     url: j.str('url'),
@@ -447,6 +464,8 @@ class DownloadSpec {
     source: j['source'] == null ? null : j.obj('source'),
     profile: j['profile']?.toString(),
     torrent: j['torrent'] == null ? null : j.obj('torrent'),
+    appUpdateKey: j['appUpdateKey'] as String?,
+    guestDownload: j.boolean('guestDownload', false),
   );
 }
 

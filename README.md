@@ -15,7 +15,7 @@
 
 ## 项目介绍
 
-**文析助手（AsterLink）** 是一款面向 Android 和 Windows 的免费网盘管理与下载应用，支持分享链接解析、个人网盘浏览、文件上传下载和音视频在线播放。目前已接入 **14 个网盘**，可以管理不同平台的多个账号。
+**文析助手（AsterLink）** 是一款面向 Android 和 Windows 的免费网盘管理与下载应用，支持分享链接解析、个人网盘浏览、文件上传下载和音视频在线播放。目前已接入 **15 个网盘**，可以管理不同平台的多个账号。
 
 
 
@@ -32,7 +32,7 @@
 
 ## 支持网盘
 
-已接入 **14 个网盘**，其中 **12 个支持分享解析**。
+已接入 **15 个网盘**，其中 **13 个支持分享解析**。
 
 <table>
   <tr>
@@ -54,7 +54,8 @@
     <td align="center" width="25%"><img src="assets/icons/115.png" width="36" height="36" alt="115 网盘"><br><strong>115 网盘</strong></td>
   </tr>
   <tr>
-    <td align="center" colspan="2"><img src="assets/icons/lanzous.png" width="36" height="36" alt="蓝奏云优享版"><br><strong>蓝奏云优享版</strong><br><sub>个人盘</sub></td>
+    <td align="center"><img src="assets/icons/ctfile.png" width="36" height="36" alt="城通网盘"><br><strong>城通网盘</strong></td>
+    <td align="center"><img src="assets/icons/lanzous.png" width="36" height="36" alt="蓝奏云优享版"><br><strong>蓝奏云优享版</strong><br><sub>个人盘</sub></td>
     <td align="center" colspan="2"><img src="assets/icons/weiyun.png" width="36" height="36" alt="腾讯微云"><br><strong>腾讯微云</strong><br><sub>个人盘</sub></td>
   </tr>
 </table>
@@ -77,6 +78,8 @@
 
 
 ## 使用
+
+城通网盘支持邮箱密码或 Session Token 登录；分享下载受城通的访问限制、等待时间和账号限速影响。创建分享沿用城通账号默认设置，暂不支持转存到指定目录。
 
 1. **添加账号**：在“网盘”页选择平台并登录，进入个人网盘管理文件。
 2. **解析分享**：在“解析”页粘贴链接或完整分享文案，核对提取码后开始解析。

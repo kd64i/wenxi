@@ -12,6 +12,7 @@ import 'common.dart';
 import 'remote_control_dialogs.dart';
 import 'diagnostics_page.dart';
 import 'download_protection_page.dart';
+import 'experimental_features_page.dart';
 import 'contact_author_dialog.dart';
 
 class MinePage extends StatelessWidget {
@@ -455,6 +456,19 @@ class MinePage extends StatelessWidget {
     ),
   ]);
 
+  Widget _experimental(BuildContext context) => _section(context, '更多设置', [
+    _tile(
+      context,
+      CupertinoIcons.lab_flask,
+      '实验性功能',
+      '夸克与 UC 网盘的下载功能与说明',
+      () => Navigator.push<void>(
+        context,
+        MaterialPageRoute(builder: (_) => ExperimentalFeaturesPage(services)),
+      ),
+    ),
+  ]);
+
   Widget _downloads(BuildContext context, AppSettings settings) =>
       _section(context, '下载设置', [
         _tile(
@@ -575,8 +589,12 @@ class MinePage extends StatelessWidget {
           : services.control.availableUpdate != null
           ? '发现新版本 ${services.control.availableUpdate!.version}'
           : '当前版本 ${applicationVersion.split('+').first}',
-      () =>
-          checkForAppUpdate(context, services.control, launcher: linkLauncher),
+      () => checkForAppUpdate(
+        context,
+        services.control,
+        launcher: linkLauncher,
+        updater: services.appUpdates,
+      ),
     ),
     _tile(
       context,
@@ -673,6 +691,7 @@ class MinePage extends StatelessWidget {
         final downloads = _downloads(context, settings);
         final appearance = _appearance(context, settings, desktop);
         final recognition = _linkRecognition(context, settings);
+        final experimental = _experimental(context);
         final data = _data(context);
         final help = _help(context);
         return ListView(
@@ -700,6 +719,8 @@ class MinePage extends StatelessWidget {
                         const SizedBox(height: 24),
                         recognition,
                         const SizedBox(height: 24),
+                        experimental,
+                        const SizedBox(height: 24),
                         data,
                         const SizedBox(height: 24),
                         help,
@@ -712,6 +733,8 @@ class MinePage extends StatelessWidget {
               appearance,
               const SizedBox(height: 24),
               recognition,
+              const SizedBox(height: 24),
+              experimental,
               const SizedBox(height: 24),
               downloads,
               const SizedBox(height: 24),

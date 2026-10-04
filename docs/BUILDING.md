@@ -35,3 +35,5 @@ flutter pub get
 | Windows 安装器 | `build/windows/installer/` |
 
 便携使用时保留完整运行目录，不能只复制 EXE。
+
+更新链接的配置与安装行为见 [App 内更新](IN-APP-UPDATE.md)。

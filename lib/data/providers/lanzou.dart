@@ -133,11 +133,17 @@ class LanzouConnector extends CloudConnector {
           !path.contains('://'),
       '蓝奏未返回有效下载地址，请重新解析',
     );
-    var name = data.str('inf').trim();
+    // Some successful responses use inf: 0 as a status placeholder.
+    // Only a real string filename may override the share page metadata.
+    final info = data['inf'];
+    var name = info is String ? info.trim() : '';
     if (name.isEmpty ||
         name.length > 1024 ||
         name.contains('<') ||
-        name == '成功') {
+        RegExp(
+          r'^(?:0|1|null|undefined|true|false|ok|success|成功)$',
+          caseSensitive: false,
+        ).hasMatch(name)) {
       name = page.name.ifEmpty(downloadPage.name);
     }
     require(name.isNotEmpty, '蓝奏未返回文件名称，请重新解析');
@@ -585,6 +591,27 @@ class LanzouConnector extends CloudConnector {
     return const CloudAccount('蓝奏云用户');
   }
 
+  Future<LoginResult> authenticate(Credential credential) async {
+    final context = await _personalContext(credential);
+    // Verify the personal file API before accepting browser cookies.
+    final files = await _accountCall(context, {
+      'task': 5,
+      'folder_id': '-1',
+      'pg': 1,
+    }, listing: true);
+    require(
+      files.integer('zt') == 2 || files['text'] is List,
+      '蓝奏未返回有效文件列表，请在网页进入「我的文件」后重新检测',
+    );
+    return LoginResult(
+      credential.withFields({
+        'primary': context.cookie,
+        'userId': context.parameters['uid']!,
+      }, preserveRevision: true),
+      const CloudAccount('蓝奏云用户'),
+    );
+  }
+
   @override
   Future<BrowseSession> openPersonal(Credential credential) async {
     if (!LoginCredentials.plausible(platform, credential.primary)) {
@@ -638,11 +665,13 @@ class LanzouConnector extends CloudConnector {
     Credential c,
   ) async {
     require(s.canManageFiles && files.length == 1, '蓝奏一次只能分享一个文件或文件夹');
-    require(
-      (options.expiryDays ?? 0) == 0 && (options.passcode ?? '').isEmpty,
-      '蓝奏暂不支持在此修改分享期限或提取码，请使用官网',
-    );
+    require((options.expiryDays ?? 0) == 0, '蓝奏暂不支持设置分享期限，请使用永久有效');
+    final password = (options.passcode ?? '').trim();
+    if (password.isNotEmpty) {
+      await _personalSharePassword(files.single, password, c);
+    }
     final link = await _personalShare(files.single, c);
+    require(password.isEmpty || link.passcode == password, '蓝奏提取码设置未生效，请重试');
     return ShareCreation(link.url, link.passcode ?? '', options.title);
   }
 

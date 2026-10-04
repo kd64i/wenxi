@@ -133,6 +133,66 @@ void main() {
     );
   }
 
+  for (final size in [const Size(393, 852), const Size(1280, 800)]) {
+    testWidgets('Ctfile password and manual login work at $size', (
+      tester,
+    ) async {
+      final http = FakeHttp((r) {
+        if (r.uri.path.endsWith('/login')) {
+          expect(r.json['email'], 'test@example.com');
+          return jsonResponse({'code': 200, 'token': 'fixture-session-token'});
+        }
+        if (r.uri.path.endsWith('/profile')) {
+          return jsonResponse({'code': 200, 'userid': 42, 'nick_name': '城通测试'});
+        }
+        return jsonResponse({
+          'code': 200,
+          'space_used': 100,
+          'max_storage': 1000,
+        });
+      });
+      final services = await render(
+        tester,
+        CloudPlatform.ctfile,
+        http,
+        size: size,
+      );
+      expect(find.byKey(const ValueKey('native-login-web')), findsNothing);
+      final manual = find.byKey(const ValueKey('native-login-manual'));
+      await tester.ensureVisible(manual);
+      await tester.tap(manual);
+      await tester.pumpAndSettle();
+      expect(find.text('Session Token'), findsOneWidget);
+      final back = find.byKey(const ValueKey('manual-login-password'));
+      await tester.ensureVisible(back);
+      await tester.tap(back);
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('native-login-username')),
+        'test@example.com',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('native-login-password')),
+        'password',
+      );
+      final submit = find.byKey(const ValueKey('native-login-submit'));
+      await tester.ensureVisible(submit);
+      await tester.runAsync(() async {
+        await tester.tap(submit);
+        await until(
+          () => services.vault.credential(CloudPlatform.ctfile) != null,
+        );
+      });
+      await tester.pumpAndSettle();
+      expect(
+        services.vault.credential(CloudPlatform.ctfile)!.field('userId'),
+        '42',
+      );
+      expect(find.byType(PasswordLoginFlow), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets(
     'Xunlei password login always remembers credentials without a switch',
     (tester) async {

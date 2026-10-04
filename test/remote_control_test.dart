@@ -7,6 +7,32 @@ import 'package:asterlink/domain/remote_control.dart';
 import 'remote_control_support.dart';
 
 void main() {
+  test(
+    'Optional in-app update link and passcode survive roundtrip; old configs use browser URL',
+    () {
+      final source = controlJson(androidBuild: 120, windowsBuild: 120);
+      final android = (source['updates'] as Map)['android'] as Map;
+      android['inAppDownloadUrl'] = 'https://wwanc.lanzouq.com/iabc123';
+      android['inAppPasscode'] = '1234';
+      final config = RemoteControlConfig.fromJson(source);
+      final restored = RemoteControlConfig.fromJson(config.toJson());
+      expect(
+        restored.updates['android']!.appDownloadUrl.host,
+        'wwanc.lanzouq.com',
+      );
+      expect(restored.updates['android']!.inAppPasscode, '1234');
+      expect(
+        restored.updates['android']!.downloadUrl.host,
+        'download.example.test',
+      );
+      expect(
+        restored.updates['windows']!.appDownloadUrl,
+        restored.updates['windows']!.downloadUrl,
+      );
+      android['inAppDownloadUrl'] = 'http://example.test/app.apk';
+      expect(() => RemoteControlConfig.fromJson(source), throwsFormatException);
+    },
+  );
   test('The shipped single JSON is valid and inactive until configured', () {
     final config = RemoteControlConfig.decode(
       File('config/control.example.json').readAsStringSync(),

@@ -12,6 +12,7 @@ class QuarkConnector extends CookieCloudConnector {
     Future<void> Function(DownloadCleanup)? stageCleanup,
     Duration taskDelay = const Duration(milliseconds: 750),
     int Function()? now,
+    bool Function(bool authenticated)? directShareDownloadEnabled,
   }) : super(
          CloudPlatform.quark,
          http,
@@ -21,6 +22,7 @@ class QuarkConnector extends CookieCloudConnector {
          now: now,
          webUserAgent: webUa,
          apiUserAgent: cloudUa,
+         directShareDownloadEnabled: directShareDownloadEnabled,
        );
 
   static const webUa =

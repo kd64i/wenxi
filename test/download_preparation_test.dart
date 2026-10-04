@@ -74,6 +74,7 @@ class _Fixture {
       cleanups: cleanups,
       http: http,
       refreshSource: (previous) => resolve(previous),
+      onGuestDownload: () => guestNotices++,
     );
   }
   final Directory directory;
@@ -87,6 +88,7 @@ class _Fixture {
   Future<DownloadSpec> Function(DownloadSpec) resolve = (previous) async =>
       _ready(previous);
   bool closed = false;
+  int guestNotices = 0;
 
   static Future<_Fixture> create({StateStore? state}) async {
     final result = _Fixture._(
@@ -121,6 +123,111 @@ class _Fixture {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test(
+    'Failed guest attempts still explain the route and do not repeat on retry',
+    () async {
+      final fixture = await _Fixture.create();
+      fixture.resolve = (previous) async {
+        DownloadRequestContext.current!.onGuestDownload!();
+        throw const AppException('guest interface unavailable');
+      };
+      final id = await fixture.manager.enqueue(_planned('failed-guest'));
+      await until(
+        () => fixture.manager.task(id)!.status == DownloadStatus.failed,
+      );
+      expect(fixture.guestNotices, 1);
+      await fixture.manager.resume(id);
+      await until(
+        () => fixture.manager.task(id)!.status == DownloadStatus.failed,
+      );
+      expect(fixture.guestNotices, 1);
+    },
+  );
+
+  test(
+    'Guest batches notify once after resolution, and ordinary downloads do not',
+    () async {
+      final fixture = await _Fixture.create();
+      fixture.resolve = (previous) async =>
+          _ready(previous).copyWith(guestDownload: true);
+      final ids = await fixture.manager.enqueueAll([
+        _planned('guest-a'),
+        _planned('guest-b'),
+        _planned('guest-c'),
+      ]);
+      await until(
+        () => ids.every(
+          (id) => fixture.manager.task(id)!.status == DownloadStatus.completed,
+        ),
+      );
+      expect(fixture.guestNotices, 1);
+      for (final task in fixture.store.data.list('tasks')) {
+        expect(DownloadTask.fromJson(task).spec.guestDownload, isTrue);
+      }
+
+      fixture.resolve = (previous) async => _ready(previous);
+      final normal = await fixture.manager.enqueue(_planned('account-route'));
+      await until(
+        () => fixture.manager.task(normal)!.status == DownloadStatus.completed,
+      );
+      expect(fixture.guestNotices, 1);
+
+      final ready = await fixture.manager.enqueue(
+        _ready(_planned('preview-guest')).copyWith(guestDownload: true),
+      );
+      await until(
+        () => fixture.manager.task(ready)!.status == DownloadStatus.completed,
+      );
+      expect(fixture.guestNotices, 2);
+    },
+  );
+
+  test('Refreshing an expired guest URL does not repeat its notice', () async {
+    final fixture = await _Fixture.create();
+    fixture.resolve = (previous) async =>
+        _ready(previous).copyWith(guestDownload: true);
+    final ready = DownloadSpec.fromJson({
+      ..._ready(_planned('guest-refresh')).toJson(),
+      'url': 'https://cdn.example.test/expired',
+      'guestDownload': true,
+    });
+    final id = await fixture.manager.enqueue(ready);
+    await until(
+      () => fixture.manager.task(id)!.status == DownloadStatus.completed,
+    );
+    expect(fixture.http.probes, contains(ready.url));
+    expect(fixture.guestNotices, 1);
+  });
+
+  test(
+    'Update task identity survives cloud URL preparation and task persistence',
+    () async {
+      final fixture = await _Fixture.create();
+      final planned = _planned(
+        'app-update',
+      ).copyWith(appUpdateKey: 'release-content-key');
+      fixture.resolve = (previous) async => DownloadSpec.fromJson({
+        ..._ready(previous).toJson(),
+        'appUpdateKey': null,
+      });
+      final id = await fixture.manager.enqueue(planned);
+      await until(
+        () => fixture.manager.task(id)!.status == DownloadStatus.completed,
+      );
+      expect(
+        fixture.manager.task(id)!.spec.appUpdateKey,
+        'release-content-key',
+      );
+      final saved = fixture.store.data
+          .list('tasks')
+          .singleWhere((t) => t.str('id') == id);
+      expect(
+        DownloadTask.fromJson(saved).spec.appUpdateKey,
+        'release-content-key',
+      );
+    },
+  );
 
   test(
     'Preparing a URL cannot discard a known checksum when the refreshed listing omits it',

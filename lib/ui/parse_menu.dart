@@ -1,5 +1,6 @@
 import 'package:flutter/cupertino.dart';
 import '../data/remote_control_service.dart';
+import '../data/app_update_service.dart';
 import 'app_popup_menu.dart';
 import 'remote_control_dialogs.dart';
 
@@ -9,11 +10,13 @@ class ParseMenuButton extends StatelessWidget {
     required this.control,
     required this.onDonate,
     this.linkLauncher,
+    this.updater,
   });
 
   final RemoteControlService control;
   final VoidCallback onDonate;
   final RemoteLinkLauncher? linkLauncher;
+  final AppUpdateService? updater;
 
   @override
   Widget build(BuildContext context) => AppPopupMenuButton<String>(
@@ -29,7 +32,12 @@ class ParseMenuButton extends StatelessWidget {
     ],
     onSelected: (action) async {
       if (action == 'announcement') {
-        await openLatestAnnouncement(context, control, launcher: linkLauncher);
+        await openLatestAnnouncement(
+          context,
+          control,
+          launcher: linkLauncher,
+          updater: updater,
+        );
       } else if (action == 'donate') {
         onDonate();
       }

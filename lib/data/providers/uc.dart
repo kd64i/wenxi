@@ -14,6 +14,7 @@ class UcConnector extends CookieCloudConnector {
     Duration taskDelay = const Duration(milliseconds: 750),
     int Function()? now,
     Future<void> Function(DownloadCleanup)? stageCleanup,
+    bool Function(bool authenticated)? directShareDownloadEnabled,
   }) : tv = UcTvService(http, store: store, now: now),
        super(
          CloudPlatform.uc,
@@ -24,6 +25,7 @@ class UcConnector extends CookieCloudConnector {
          stageCleanup: stageCleanup,
          webUserAgent: webUa,
          apiUserAgent: cloudUa,
+         directShareDownloadEnabled: directShareDownloadEnabled,
        );
 
   final UcTvService tv;
@@ -34,6 +36,27 @@ class UcConnector extends CookieCloudConnector {
     CloudFile file,
     Credential? credential,
   ) async {
+    if (session.mode == BrowseMode.share) {
+      try {
+        final direct = await tryShareDownload(
+          session,
+          file,
+          credential,
+          onRefreshed: (freshSession, freshFile) {
+            session = freshSession;
+            file = freshFile;
+          },
+        );
+        if (direct != null) return direct;
+      } on UcOriginalContentMismatch catch (error) {
+        // Retain the existing authorized-original route for restricted media.
+        if (!UcTvService.authorized(credential)) {
+          throw UcTvAuthorizationRequired(
+            '${error.message}。请点击「授权并继续」，或在 UC 账号菜单完成「TV 播放授权」后重试',
+          );
+        }
+      }
+    }
     Credential? authorized;
     var authorization = credential?.field('tv_status') == 'expired'
         ? 'expired'
@@ -68,7 +91,9 @@ class UcConnector extends CookieCloudConnector {
       );
     }
     try {
-      return await super.download(session, file, credential);
+      return session.mode == BrowseMode.share
+          ? await downloadFallback(session, file, credential)
+          : await super.download(session, file, credential);
     } on UcOriginalContentMismatch catch (error) {
       throw UcTvAuthorizationRequired(
         '${error.message}。请点击「授权并继续」，或在 UC 账号菜单完成「TV 播放授权」后重试',

@@ -71,6 +71,10 @@ class RemoteControlConfig {
             'version': update.version,
             'build': update.build,
             'downloadUrl': update.downloadUrl.toString(),
+            if (update.inAppDownloadUrl != null)
+              'inAppDownloadUrl': update.inAppDownloadUrl.toString(),
+            if (update.inAppPasscode.isNotEmpty)
+              'inAppPasscode': update.inAppPasscode,
             'notes': update.notes,
             if (update.expiresAt != null)
               'expiresAt': update.expiresAt!.toUtc().toIso8601String(),
@@ -122,10 +126,15 @@ class RemoteUpdate {
     this.force = false,
     this.expiresAt,
     this.releaseKey,
+    this.inAppDownloadUrl,
+    this.inAppPasscode = '',
   });
   final String version, notes;
   final int build;
   final Uri downloadUrl;
+  final Uri? inAppDownloadUrl;
+  final String inAppPasscode;
+  Uri get appDownloadUrl => inAppDownloadUrl ?? downloadUrl;
   final bool force;
   final DateTime? expiresAt;
   // GitHub may provide a version without an Android/Windows build number.

@@ -12,6 +12,7 @@ import 'http.dart';
 import 'http_retry.dart';
 import 'cleanup_outbox.dart';
 import 'providers/baidu.dart';
+import 'providers/ctfile.dart';
 import 'providers/quark.dart';
 import 'providers/uc.dart';
 import 'providers/pan123.dart';
@@ -28,6 +29,7 @@ import 'providers/pan115.dart';
 import 'providers/xunlei.dart';
 import 'providers/xunlei_protocol.dart';
 import 'providers/xunlei_login.dart';
+import '../domain/xunlei_kouling.dart';
 
 class CloudRepository {
   CloudRepository(
@@ -37,21 +39,33 @@ class CloudRepository {
     this.checkAccess,
     this.preparationRetries,
     this.retryWait,
+    this.directShareDownloadEnabled,
   }) : http = transport is RetryingJsonHttp
            ? transport
            : RetryingJsonHttp(transport) {
     final devices = XunleiDevices(vault);
     connectors = {
+      CloudPlatform.ctfile: CtfileConnector(http),
       CloudPlatform.baidu: BaiduConnector(http, stageCleanup: _stageCleanup),
       CloudPlatform.quark: QuarkConnector(
         http,
         store: vault,
         stageCleanup: _stageCleanup,
+        directShareDownloadEnabled: directShareDownloadEnabled == null
+            ? null
+            : (authenticated) => directShareDownloadEnabled!(
+                CloudPlatform.quark,
+                authenticated,
+              ),
       ),
       CloudPlatform.uc: UcConnector(
         http,
         store: vault,
         stageCleanup: _stageCleanup,
+        directShareDownloadEnabled: directShareDownloadEnabled == null
+            ? null
+            : (authenticated) =>
+                  directShareDownloadEnabled!(CloudPlatform.uc, authenticated),
       ),
       CloudPlatform.pan123: Pan123Connector(
         http,
@@ -182,6 +196,8 @@ class CloudRepository {
   final void Function(CloudPlatform)? checkAccess;
   final int Function()? preparationRetries;
   final Future<void> Function(Duration)? retryWait;
+  final bool Function(CloudPlatform platform, bool authenticated)?
+  directShareDownloadEnabled;
   final _preparationKey = Object();
   final _continuationKey = Object();
   final _readPreparationKey = Object();
@@ -344,6 +360,18 @@ class CloudRepository {
       );
       return bindSession(result.withLink(link));
     });
+  }
+
+  Future<String> resolveXunleiKouling(String keyword) async {
+    final response = await http
+        .get(XunleiKouling.jumpUrl(XunleiKouling.normalize(keyword)), {
+          'User-Agent': XunleiKouling.userAgent,
+          'Accept': '*/*',
+          'Origin': XunleiKouling.origin,
+          'Referer': XunleiKouling.referer,
+          'Accept-Language': 'zh-CN',
+        });
+    return XunleiKouling.shareUrlFromResponse(response.status, response.json)!;
   }
 
   Future<List<CloudFile>> list(BrowseSession session, String parent) =>

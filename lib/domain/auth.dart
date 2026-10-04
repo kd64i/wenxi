@@ -272,6 +272,9 @@ class LoginCredentials {
     if (RegExp(r'[\x00-\x1f\x7f-\x9f]').hasMatch(cookie)) return false;
     final p = cookiePairs(cookie);
     return switch (platform) {
+      CloudPlatform.ctfile =>
+        RegExp(r'^[A-Za-z0-9_-]{16,256}$').hasMatch(raw.trim()) ||
+            cookiePairs(raw).containsKey('ctfile_session'),
       CloudPlatform.pan115 => ['UID', 'CID', 'SEID'].every(p.containsKey),
       CloudPlatform.baidu => p.containsKey('BDUSS'),
       CloudPlatform.lanzou =>
@@ -387,6 +390,7 @@ class LoginCredentials {
   }
 
   static String hint(CloudPlatform p) => switch (p) {
+    CloudPlatform.ctfile => '请粘贴城通网盘「开放接口登录密钥管理」中的 Session Token；也可切换邮箱密码登录',
     CloudPlatform.pan115 => '请粘贴 115 登录后的完整 Cookie，需包含 UID、CID 和 SEID',
     CloudPlatform.baidu => 'Cookie 需包含非空的 BDUSS',
     CloudPlatform.quark || CloudPlatform.uc => 'Cookie 需同时包含非空的 __pus 和 __puus',
@@ -678,11 +682,12 @@ class WebLoginTarget {
     ),
     CloudPlatform.lanzou: WebLoginTarget(
       CloudPlatform.lanzou,
-      'https://pc.woozooo.com/mydisk.php',
+      'https://pc.woozooo.com/account.php?action=login',
       [
         'https://pc.woozooo.com',
         'https://up.woozooo.com',
         'https://woozooo.com',
+        'https://accounts.woozooo.com',
       ],
     ),
     CloudPlatform.baidu: WebLoginTarget(
@@ -901,6 +906,11 @@ class WebLoginTarget {
   List<String> cookieUrls(String? page) {
     final uri = Uri.tryParse(page ?? '');
     return {
+      if (platform == CloudPlatform.lanzou) ...[
+        'https://pc.woozooo.com/mydisk.php',
+        'https://pc.woozooo.com/doupload.php',
+        'https://up.woozooo.com/mydisk.php',
+      ],
       if (platform == CloudPlatform.tianyi)
         'https://cloud.189.cn/api/open/user/getUserInfoForPortal.action',
       // Prefer the cookies the account API receives, including HttpOnly cookies

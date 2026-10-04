@@ -29,6 +29,7 @@ import 'ui/parse_menu.dart';
 import 'ui/donate_page.dart';
 import 'ui/about_dialog.dart';
 import 'ui/download_shutdown_prompt.dart';
+import 'ui/guest_download_prompt.dart';
 import 'ui/player_page.dart';
 import 'platform/external_open.dart';
 import 'playback/external_playback.dart';
@@ -573,6 +574,13 @@ class _MainShellState extends State<MainShell>
           context,
           MaterialPageRoute(builder: (_) => CloudAccountsPage(widget.services)),
         );
+      case 'cloud-layout':
+        await Navigator.push<void>(
+          context,
+          MaterialPageRoute(
+            builder: (_) => CloudListSettingsPage(widget.services),
+          ),
+        );
       case 'refresh':
         await widget.services.refreshAccounts();
       case 'pause':
@@ -601,6 +609,11 @@ class _MainShellState extends State<MainShell>
 
   List<AppMenuAction<String>> get menu => switch (selected) {
     1 => const [
+      AppMenuAction(
+        value: 'cloud-layout',
+        label: '排序与隐藏',
+        icon: CupertinoIcons.slider_horizontal_3,
+      ),
       AppMenuAction(
         value: 'accounts',
         label: '账号管理',
@@ -696,6 +709,7 @@ class _MainShellState extends State<MainShell>
                   child: selected == 0
                       ? ParseMenuButton(
                           control: widget.services.control,
+                          updater: widget.services.appUpdates,
                           onDonate: () => Navigator.push<void>(
                             context,
                             MaterialPageRoute(
@@ -714,13 +728,17 @@ class _MainShellState extends State<MainShell>
             ),
             body: SafeArea(
               top: false,
-              bottom: selected != 0,
+              bottom: rail,
               child: Center(
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 1120),
                   child: Column(
                     children: [
-                      RemoteControlPrompts(widget.services.control),
+                      RemoteControlPrompts(
+                        widget.services.control,
+                        updater: widget.services.appUpdates,
+                      ),
+                      GuestDownloadPrompt(widget.services),
                       DownloadShutdownPrompt(
                         widget.services.downloadShutdown,
                         showWindow:

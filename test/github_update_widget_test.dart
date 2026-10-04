@@ -249,7 +249,7 @@ void main() {
     );
     await render(tester);
     await check(tester);
-    final oldDownload = tester.widget<FilledButton>(download).onPressed!;
+    final oldDownload = tester.widget<OutlinedButton>(download).onPressed!;
     github.text = jsonEncode(
       githubRelease(tag: 'v0.7.0', files: ['asterlink-android-arm64.apk']),
     );

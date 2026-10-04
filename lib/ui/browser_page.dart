@@ -7,6 +7,7 @@ import '../core/json.dart';
 import '../core/operation_progress.dart';
 import '../data/http.dart';
 import '../domain/models.dart';
+import '../domain/cloud_file_time.dart';
 import '../diagnostics/app_log.dart';
 import 'app_popup_menu.dart';
 import 'common.dart';
@@ -178,11 +179,17 @@ class _BrowserPageState extends State<BrowserPage> {
                       )),
         )
         .toList();
+    final dates = sort == 'date'
+        ? {for (final file in result) file: cloudFileDate(file.modifiedAt)}
+        : <CloudFile, DateTime?>{};
     result.sort((a, b) {
       if (a.isDirectory != b.isDirectory) return a.isDirectory ? -1 : 1;
+      if (sort == 'date' && (dates[a] == null) != (dates[b] == null)) {
+        return dates[a] == null ? 1 : -1;
+      }
       final order = switch (sort) {
         'size' => a.size.compareTo(b.size),
-        'date' => a.modifiedAt.compareTo(b.modifiedAt),
+        'date' => dates[a]?.compareTo(dates[b]!) ?? a.name.compareTo(b.name),
         _ => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
       };
       return ascending ? order : -order;
@@ -389,9 +396,7 @@ class _BrowserPageState extends State<BrowserPage> {
               ListTile(
                 leading: FileGlyph(file.name, directory: file.isDirectory),
                 title: Text(file.name, maxLines: 2),
-                subtitle: Text(
-                  file.isDirectory ? '文件夹' : formatBytes(file.size),
-                ),
+                subtitle: _fileMetadata(file),
               ),
               if (!file.isDirectory)
                 ListTile(
@@ -426,6 +431,7 @@ class _BrowserPageState extends State<BrowserPage> {
                 ),
               if (session.mode == BrowseMode.share &&
                   session.platform != CloudPlatform.lanzou &&
+                  session.platform != CloudPlatform.ctfile &&
                   session.platform.requiresAccount &&
                   session.platform.supportsSharing)
                 ListTile(
@@ -933,6 +939,10 @@ class _BrowserPageState extends State<BrowserPage> {
       final mediaHeight = (width - 16) * .72;
       final scaler = MediaQuery.textScalerOf(context);
       final titleHeight = scaler.scale(14) * 1.35 * 2;
+      final timeHeight =
+          files.any((file) => formatCloudFileTime(file.modifiedAt).isNotEmpty)
+          ? scaler.scale(11) * 1.3 * 2 + 4
+          : 0.0;
       return GridView.builder(
         key: key,
         physics: const AlwaysScrollableScrollPhysics(),
@@ -942,7 +952,11 @@ class _BrowserPageState extends State<BrowserPage> {
           crossAxisSpacing: 12,
           mainAxisSpacing: 12,
           mainAxisExtent:
-              mediaHeight + titleHeight + scaler.scale(11) * 1.3 + 30,
+              mediaHeight +
+              titleHeight +
+              scaler.scale(11) * 1.3 +
+              timeHeight +
+              30,
         ),
         itemCount: files.length,
         itemBuilder: (context, index) => _gridCard(
@@ -990,34 +1004,13 @@ class _BrowserPageState extends State<BrowserPage> {
           overflow: TextOverflow.ellipsis,
           style: const TextStyle(fontSize: 14),
         ),
-        subtitle: Text(
-          file.isDirectory ? '文件夹' : formatBytes(file.size),
-          style: TextStyle(fontSize: 11, color: secondary(context)),
-        ),
+        subtitle: _fileMetadata(file),
         trailing: widget.picking
             ? const Icon(CupertinoIcons.chevron_right, size: 14)
-            : Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (wide)
-                    SizedBox(
-                      width: 150,
-                      child: Text(
-                        file.modifiedAt,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: secondary(context),
-                        ),
-                      ),
-                    ),
-                  IconButton(
-                    tooltip: '${file.name}操作',
-                    icon: const Icon(CupertinoIcons.ellipsis, size: 20),
-                    onPressed: () => _menu(file),
-                  ),
-                ],
+            : IconButton(
+                tooltip: '${file.name}操作',
+                icon: const Icon(CupertinoIcons.ellipsis, size: 20),
+                onPressed: () => _menu(file),
               ),
         onLongPress: widget.picking ? null : () => _toggle(file),
         onTap: () => _open(file),
@@ -1033,6 +1026,7 @@ class _BrowserPageState extends State<BrowserPage> {
     bool wide,
   ) {
     final checked = selected.contains(file.id);
+    final time = formatCloudFileTime(file.modifiedAt);
     return Semantics(
       selected: checked,
       child: GestureDetector(
@@ -1131,12 +1125,38 @@ class _BrowserPageState extends State<BrowserPage> {
                       color: secondary(context),
                     ),
                   ),
+                  if (time.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      time,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 11,
+                        height: 1.3,
+                        color: secondary(context),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
           ),
         ),
       ),
+    );
+  }
+
+  Widget _fileMetadata(CloudFile file) {
+    final time = formatCloudFileTime(file.modifiedAt);
+    final style = TextStyle(fontSize: 11, color: secondary(context));
+    return Wrap(
+      spacing: 10,
+      runSpacing: 2,
+      children: [
+        Text(file.isDirectory ? '文件夹' : formatBytes(file.size), style: style),
+        if (time.isNotEmpty) Text(time, style: style),
+      ],
     );
   }
 
@@ -1496,6 +1516,7 @@ class _BrowserPageState extends State<BrowserPage> {
                       ),
                       if (session.mode == BrowseMode.share &&
                           session.platform != CloudPlatform.lanzou &&
+                          session.platform != CloudPlatform.ctfile &&
                           session.platform.requiresAccount &&
                           session.platform.supportsSharing)
                         TextButton(
@@ -1612,7 +1633,9 @@ class _ShareOptionsDialogState extends State<_ShareOptionsDialog> {
         : '${widget.files.first.name} 等 ${widget.files.length} 项',
   );
   final passcode = TextEditingController();
-  int days = 7;
+  bool get usesDefaultShare =>
+      {CloudPlatform.lanzou, CloudPlatform.ctfile}.contains(widget.platform);
+  late int days = usesDefaultShare ? 0 : 7;
   @override
   void dispose() {
     title.dispose();
@@ -1638,16 +1661,20 @@ class _ShareOptionsDialogState extends State<_ShareOptionsDialog> {
               initialValue: days,
               decoration: const InputDecoration(labelText: '有效期'),
               items: [
-                const DropdownMenuItem(value: 1, child: Text('1 天')),
-                const DropdownMenuItem(value: 7, child: Text('7 天')),
-                if (widget.platform != CloudPlatform.tianyi)
-                  const DropdownMenuItem(value: 30, child: Text('30 天')),
+                if (!usesDefaultShare) ...[
+                  const DropdownMenuItem(value: 1, child: Text('1 天')),
+                  const DropdownMenuItem(value: 7, child: Text('7 天')),
+                  if (widget.platform != CloudPlatform.tianyi)
+                    const DropdownMenuItem(value: 30, child: Text('30 天')),
+                ],
                 const DropdownMenuItem(value: 0, child: Text('永久')),
               ],
-              onChanged: (v) => days = v ?? 7,
+              onChanged: usesDefaultShare ? null : (v) => days = v ?? 7,
             ),
             const SizedBox(height: 16),
-            if (widget.platform == CloudPlatform.c139)
+            if (widget.platform == CloudPlatform.ctfile)
+              const Text('提取码沿用城通账号的默认设置，可在官网修改。一次可分享一个文件或文件夹。')
+            else if (widget.platform == CloudPlatform.c139)
               const Text('提取码由移动云盘自动生成')
             else if (widget.platform == CloudPlatform.tianyi)
               const Text('访问码由天翼云盘自动生成')

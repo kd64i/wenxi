@@ -1,14 +1,20 @@
 import 'dart:async';
 import '../../core/json.dart';
+import '../../diagnostics/app_log.dart';
 import '../../domain/auth.dart';
 import '../../domain/models.dart';
 import '../../domain/uploads.dart';
+import '../../download/download_request.dart';
 import '../http.dart';
 import '../state_store.dart';
 import 'quark_uc.dart';
 
 class UcOriginalContentMismatch extends AppException {
   const UcOriginalContentMismatch() : super('UC 返回的内容与所选文件不一致，可能受到外部播放或会员限制');
+}
+
+class _ShareDirectUnavailable extends AppException {
+  const _ShareDirectUnavailable(super.message);
 }
 
 /// Shared UC/Quark session lifetime; each connector keeps its protocol headers.
@@ -22,6 +28,7 @@ class CookieCloudConnector extends QuarkUcConnector {
     Future<void> Function(DownloadCleanup)? stageCleanup,
     Duration taskDelay = const Duration(milliseconds: 750),
     int Function()? now,
+    bool Function(bool authenticated)? directShareDownloadEnabled,
   }) : this._(
          platform,
          _CookieCloudHttp(
@@ -34,6 +41,7 @@ class CookieCloudConnector extends QuarkUcConnector {
          ),
          taskDelay,
          stageCleanup,
+         directShareDownloadEnabled,
        );
 
   CookieCloudConnector._(
@@ -41,9 +49,11 @@ class CookieCloudConnector extends QuarkUcConnector {
     this._sessions,
     Duration delay,
     Future<void> Function(DownloadCleanup)? stageCleanup,
+    this.directShareDownloadEnabled,
   ) : super(platform, _sessions, taskDelay: delay, stageCleanup: stageCleanup);
 
   final _CookieCloudHttp _sessions;
+  final bool Function(bool authenticated)? directShareDownloadEnabled;
   @override
   String get ua => quark ? _sessions.apiUserAgent : _sessions.webUserAgent;
   @override
@@ -212,7 +222,255 @@ class CookieCloudConnector extends QuarkUcConnector {
     BrowseSession session,
     CloudFile file,
     Credential? credential,
+  ) async {
+    final direct = await tryShareDownload(
+      session,
+      file,
+      credential,
+      onRefreshed: (freshSession, freshFile) {
+        session = freshSession;
+        file = freshFile;
+      },
+    );
+    return direct ?? await downloadFallback(session, file, credential);
+  }
+
+  Future<DownloadSpec> downloadFallback(
+    BrowseSession session,
+    CloudFile file,
+    Credential? credential,
   ) => _prepare(session, file, credential, forPlayback: false);
+
+  /// Guest cookies remain isolated from saved accounts. Unavailable direct
+  /// endpoints permit an account retry; only access restrictions permit transfer.
+  Future<DownloadSpec?> tryShareDownload(
+    BrowseSession session,
+    CloudFile file,
+    Credential? credential, {
+    void Function(BrowseSession, CloudFile)? onRefreshed,
+  }) async {
+    if (session.mode != BrowseMode.share) return null;
+    // With no selected account, guest access is always attempted. With an
+    // account, the guest and authenticated routes have independent settings.
+    final directEnabled = directShareDownloadEnabled;
+    final guestEnabled =
+        credential == null || (directEnabled?.call(false) ?? true);
+    final accountEnabled =
+        credential != null && (directEnabled?.call(true) ?? true);
+    if (!guestEnabled && !accountEnabled) return null;
+    require(!file.isDirectory, '文件夹不能直接下载');
+    var refreshed = false;
+    Future<void> refreshTokens(Credential? account) async {
+      final link = session.sourceLink;
+      require(link != null, '原分享链接已缺失，请重新解析');
+      RequestScope.checkpoint();
+      final freshSession = await openShare(link!, account);
+      final parent = file.parentId == session.rootId || file.parentId.isEmpty
+          ? freshSession.rootId
+          : file.parentId;
+      final files = await list(freshSession, parent, account);
+      final matches = files.where(
+        (candidate) => candidate.id == file.id && !candidate.isDirectory,
+      );
+      require(matches.length == 1, '原文件已不在分享目录中，请重新解析');
+      final freshFile = matches.single;
+      require(file.size <= 0 || freshFile.size == file.size, '分享文件大小已变化，请重新解析');
+      require(
+        (file.hashValue ?? '').isEmpty ||
+            (freshFile.hashValue ?? '').isEmpty ||
+            file.hashValue == freshFile.hashValue,
+        '分享文件内容已变化，请重新解析',
+      );
+      session = freshSession;
+      file = freshFile;
+      refreshed = true;
+      onRefreshed?.call(session, file);
+      DiagnosticLog.event(
+        'share.download_fallback',
+        fields: {
+          'platform': platform.key,
+          'stage': 'refresh_share_credentials',
+        },
+      );
+    }
+
+    Future<DownloadSpec?> attempt(Credential? account) =>
+        _sessions.run(account, '', (_) async {
+          if (account != null) await _sessions.ensureFresh();
+          if (session.meta('stoken').isEmpty || file.token.isEmpty) {
+            throw const _ShareDirectUnavailable('分享下载凭证缺失');
+          }
+          return _shareDownload(session, file);
+        }, isolated: true);
+    Future<DownloadSpec?> recover(Credential? account) async {
+      try {
+        return await attempt(account);
+      } on _ShareDirectUnavailable {
+        if (refreshed) rethrow;
+        await refreshTokens(account);
+        return attempt(account);
+      }
+    }
+
+    String? guestFailure;
+    DownloadSpec? guest;
+    if (guestEnabled) {
+      DownloadRequestContext.current?.onGuestDownload?.call();
+      try {
+        guest = await _sessions.run(
+          null,
+          '',
+          (_) => recover(null),
+          isolated: true,
+        );
+      } on _ShareDirectUnavailable catch (error) {
+        guestFailure = error.message;
+      }
+    }
+    if (guest != null) return guest.copyWith(guestDownload: true);
+    if (credential == null) {
+      if (guestFailure != null) {
+        throw AccountLoginRequired(
+          '${platform.shortName}游客下载暂不可用，已刷新分享凭证重试；请登录后重试（$guestFailure）',
+        );
+      }
+      throw AccountLoginRequired('${platform.shortName}此文件不支持游客下载，请登录后重试');
+    }
+    if (!accountEnabled) return null;
+    DiagnosticLog.event(
+      'share.download_fallback',
+      fields: {
+        'platform': platform.key,
+        'stage': 'authenticated_direct',
+        'reason':
+            guestFailure ??
+            (guestEnabled ? 'guest_access_restricted' : 'guest_disabled'),
+      },
+    );
+    try {
+      return await recover(credential);
+    } on _ShareDirectUnavailable catch (error) {
+      throw AppException(
+        '${platform.shortName}分享直链接口暂不可用：${error.message}；请稍后重试',
+      );
+    }
+  }
+
+  Future<DownloadSpec?> _shareDownload(
+    BrowseSession session,
+    CloudFile file,
+  ) async {
+    final shareUa = quark
+        ? 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 QuarkPC/6.9.7.761 QuarkCloudDrivePC/6.9.7.761 quark-cloud-drive/2.5.40'
+        : 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) uc-cloud-drive/1.8.8 Chrome/100.0.4896.160 Electron/18.3.5.16-b62cf9c50d Safari/537.36 Channel/ucpan_other_ch';
+    final clientHeaders = {
+      'User-Agent': shareUa,
+      if (!quark)
+        'Sec-Ch-Ua':
+            '"Not=A?Brand";v="99", "Chromium";v="100", "Google Chrome";v="100"',
+    };
+    final owner = _sessions.current!.owner;
+    final response = await _sessions.transport.postJsonRead(
+      url('file/download', {
+        'sys': 'win32',
+        've': quark ? '6.9.7.761' : '1.8.8',
+      }),
+      {
+        'fids': [file.id],
+        'fids_token': [file.token],
+        'pwd_id': session.meta('shareId'),
+        'stoken': session.meta('stoken'),
+        if (quark) ...{'speedup_session': '', 'token': ''},
+      },
+      {...headers(''), ...clientHeaders},
+    );
+    await _sessions._accept(response, owner);
+    _sessions.checkpoint();
+    if ({404, 405}.contains(response.status)) {
+      throw _ShareDirectUnavailable('下载接口返回 HTTP ${response.status}');
+    }
+    if ({401, 403}.contains(response.status)) return null;
+    late Json json;
+    try {
+      json = response.json;
+    } on AppException {
+      throw const _ShareDirectUnavailable('下载接口响应格式异常');
+    }
+    if ({14001, 41020}.contains(json.integer('code'))) {
+      throw const _ShareDirectUnavailable('分享下载凭证已失效');
+    }
+    if ({23018, 31001}.contains(json.integer('code'))) {
+      return null;
+    }
+    final checked = success(response);
+    if (checked['data'] is! List || checked.list('data').isEmpty) {
+      throw const _ShareDirectUnavailable('下载接口未返回直链数据');
+    }
+    final data = checked.list('data');
+    require(
+      data.length == 1 && data.single.str('fid') == file.id,
+      '${platform.shortName} 返回的下载文件与所选文件不一致，请刷新列表后重试',
+    );
+    final item = data.single;
+    final address = item.str('download_url');
+    final uri = Uri.tryParse(address);
+    final domain = quark ? 'quark.cn' : 'uc.cn';
+    require(
+      uri != null &&
+          {'http', 'https'}.contains(uri.scheme) &&
+          uri.userInfo.isEmpty &&
+          uri.host.endsWith('.$domain'),
+      '${platform.shortName} 未返回有效的分享下载地址',
+    );
+    require(
+      file.size <= 0 || item.integer('size') == file.size,
+      '${platform.shortName} 返回的文件大小与所选文件不一致',
+    );
+    final downloadHeaders = {
+      ...clientHeaders,
+      'Cookie': _sessions.current!.cookie,
+      'Referer': '$origin/',
+    };
+    final probe = await _sessions.transport.peek(
+      address,
+      {...downloadHeaders, 'Accept-Encoding': 'identity'},
+      maxBytes: 1,
+      followRedirects: false,
+    );
+    _sessions.checkpoint();
+    if ({401, 403, 412}.contains(probe.status)) return null;
+    final range = RegExp(
+      r'^bytes 0-0/(\d+)$',
+    ).firstMatch(probe.header('content-range'));
+    final total = probe.status == 206 && range != null
+        ? int.tryParse(range[1]!)
+        : probe.status == 200
+        ? int.tryParse(probe.header('content-length'))
+        : null;
+    final encoding = probe.header('content-encoding').toLowerCase();
+    final length = int.tryParse(probe.header('content-length'));
+    require(
+      probe.successful &&
+          total != null &&
+          total > 0 &&
+          (encoding.isEmpty || encoding == 'identity') &&
+          (probe.status != 206 || length == null || length == 1),
+      '${platform.shortName} 分享文件长度检查失败，请稍后重试',
+    );
+    if ((file.size > 0 && total != file.size) ||
+        (item.integer('size') > 0 && total != item.integer('size'))) {
+      if (!quark) throw const UcOriginalContentMismatch();
+      throw const AppException('夸克返回的文件内容与所选文件不一致');
+    }
+    return DownloadSpec(
+      url: address,
+      fileName: file.name,
+      expectedSize: total!,
+      headers: downloadHeaders,
+      checksumType: file.hashType,
+      checksumValue: file.hashValue,
+    );
+  }
 
   @override
   Future<DownloadSpec> playback(
@@ -428,9 +686,10 @@ class _CookieCloudHttp extends JsonHttp {
   Future<T> run<T>(
     Credential? credential,
     String fallback,
-    Future<T> Function(_CookieCloudSession) action,
-  ) async {
-    final nested = current;
+    Future<T> Function(_CookieCloudSession) action, {
+    bool isolated = false,
+  }) async {
+    final nested = isolated ? null : current;
     if (nested != null) {
       checkpoint();
       return action(nested);
@@ -497,7 +756,7 @@ class _CookieCloudHttp extends JsonHttp {
         if (eq <= 0 || eq >= pair.length - 1) continue;
         final name = pair.substring(0, eq).trim();
         final value = pair.substring(eq + 1).trim();
-        if ({'__pus', '__puus'}.contains(name) &&
+        if ({'__pus', '__puus', '__pugs'}.contains(name) &&
             value.isNotEmpty &&
             !RegExp(r'[\x00-\x1f\x7f-\x9f]').hasMatch(value)) {
           updates[name] = value;

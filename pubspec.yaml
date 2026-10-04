@@ -1,7 +1,7 @@
 name: asterlink
 description: 文析助手，支持网盘解析、下载和 BT 在线播放。
 publish_to: none
-version: 1.0.7+107
+version: 1.1.0+110
 
 environment:
   sdk: '>=3.11.0 <4.0.0'
@@ -41,6 +41,8 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  shaders:
+    - assets/shaders/navigation_glass.frag
   assets:
     - assets/icons/
     - assets/navigation/

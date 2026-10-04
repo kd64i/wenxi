@@ -3,6 +3,8 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../data/remote_control_service.dart';
+import '../data/app_update_service.dart';
+import 'app_update_panel.dart';
 import '../diagnostics/app_log.dart';
 import '../domain/remote_control.dart';
 import 'common.dart';
@@ -171,7 +173,7 @@ Widget _dialogTitle(IconData icon, String title) => Row(
 typedef _AnnouncementChoice = ({
   RemoteAnnouncement? notice,
   bool openLink,
-  bool hideForToday,
+  bool hideForWeek,
 });
 
 Future<void> showRemoteAnnouncement(
@@ -179,13 +181,20 @@ Future<void> showRemoteAnnouncement(
   RemoteControlService control,
   RemoteAnnouncement notice, {
   RemoteLinkLauncher? launcher,
+  AppUpdateService? updater,
 }) async {
   if (control.requiredUpdate case final update?) {
-    await showRemoteUpdate(context, control, update, launcher: launcher);
+    await showRemoteUpdate(
+      context,
+      control,
+      update,
+      launcher: launcher,
+      updater: updater,
+    );
     return;
   }
   RemoteAnnouncement? displayed = notice;
-  var hideForToday = control.announcementsMutedToday;
+  var hideForWeek = control.isAnnouncementMuted(notice);
   final choice = await _present<_AnnouncementChoice>(
     context,
     control,
@@ -194,6 +203,10 @@ Future<void> showRemoteAnnouncement(
         listenable: control,
         builder: (context, _) {
           final current = control.config.announcement;
+          if (displayed?.contentKey != current?.contentKey) {
+            hideForWeek =
+                current != null && control.isAnnouncementMuted(current);
+          }
           displayed = current;
           final colors = Theme.of(context).colorScheme;
           return AlertDialog(
@@ -264,13 +277,13 @@ Future<void> showRemoteAnnouncement(
                 children: [
                   if (current != null)
                     CheckboxListTile(
-                      key: const ValueKey('control-hide-announcement-today'),
-                      value: hideForToday,
+                      key: const ValueKey('control-hide-announcement-week'),
+                      value: hideForWeek,
                       onChanged: (value) => setState(() {
-                        hideForToday = value ?? false;
+                        hideForWeek = value ?? false;
                       }),
                       title: const Text(
-                        '今天不再显示',
+                        '7天不再显示',
                         style: TextStyle(fontSize: 13),
                       ),
                       controlAffinity: ListTileControlAffinity.leading,
@@ -289,7 +302,7 @@ Future<void> showRemoteAnnouncement(
                             Navigator.pop<_AnnouncementChoice>(context, (
                               notice: current,
                               openLink: false,
-                              hideForToday: hideForToday,
+                              hideForWeek: hideForWeek,
                             )),
                         child: const Text('知道了'),
                       ),
@@ -300,7 +313,7 @@ Future<void> showRemoteAnnouncement(
                               Navigator.pop<_AnnouncementChoice>(context, (
                                 notice: current,
                                 openLink: true,
-                                hideForToday: hideForToday,
+                                hideForWeek: hideForWeek,
                               )),
                           icon: const Icon(
                             CupertinoIcons.arrow_up_right_square,
@@ -322,7 +335,7 @@ Future<void> showRemoteAnnouncement(
       if (seen != null) {
         await control.dismissAnnouncement(
           seen,
-          hideForToday: choice?.hideForToday ?? hideForToday,
+          hideForWeek: choice?.hideForWeek ?? hideForWeek,
         );
       }
     },
@@ -342,12 +355,14 @@ Future<void> showRemoteUpdate(
   RemoteControlService control,
   RemoteUpdate update, {
   RemoteLinkLauncher? launcher,
+  AppUpdateService? updater,
 }) async {
   if (control.availableUpdate == null) return;
   final choice = await _present<_UpdateChoice>(
     context,
     control,
-    (context) => _UpdateDialog(control, update, launcher: launcher),
+    (context) =>
+        _UpdateDialog(control, update, launcher: launcher, updater: updater),
     (choice) async {
       final dismissed = choice?.update ?? control.availableUpdate;
       if (dismissed == null || dismissed.force) return;
@@ -369,10 +384,11 @@ Future<void> showRemoteUpdate(
 }
 
 class _UpdateDialog extends StatefulWidget {
-  const _UpdateDialog(this.control, this.update, {this.launcher});
+  const _UpdateDialog(this.control, this.update, {this.launcher, this.updater});
   final RemoteControlService control;
   final RemoteUpdate update;
   final RemoteLinkLauncher? launcher;
+  final AppUpdateService? updater;
 
   @override
   State<_UpdateDialog> createState() => _UpdateDialogState();
@@ -416,17 +432,11 @@ class _UpdateDialogState extends State<_UpdateDialog> {
         'updates.${widget.control.platform}',
       );
       _lastUpdate = update;
-      final download = FilledButton.icon(
+      final download = OutlinedButton.icon(
         key: const ValueKey('control-download-update'),
         onPressed: _opening ? null : () => _download(update),
         icon: const Icon(CupertinoIcons.arrow_up_right_square, size: 16),
-        label: Text(
-          _opening
-              ? '正在打开…'
-              : update.force
-              ? '立即更新'
-              : '前往下载',
-        ),
+        label: Text(_opening ? '正在打开…' : '浏览器更新'),
       );
       return PopScope<_UpdateChoice>(
         canPop: !update.force,
@@ -478,6 +488,18 @@ class _UpdateDialogState extends State<_UpdateDialog> {
                   ),
                 ),
               ],
+              if (widget.updater case final updater?)
+                AppUpdatePanel(
+                  key: ValueKey(updater.keyFor(update)),
+                  updater: updater,
+                  control: widget.control,
+                  update: update,
+                  openDownloads: () {
+                    if (widget.control.requiredUpdate != null) return;
+                    _finish(_UpdateAction.later, update);
+                    updater.openDownloads();
+                  },
+                ),
             ],
           ),
           actions: [
@@ -537,6 +559,7 @@ Future<void> openLatestAnnouncement(
   BuildContext context,
   RemoteControlService control, {
   RemoteLinkLauncher? launcher,
+  AppUpdateService? updater,
 }) async {
   final route = ModalRoute.of(context);
   if (control.configured) {
@@ -548,7 +571,13 @@ Future<void> openLatestAnnouncement(
   if (notice == null) {
     message(context, control.errorForSection('announcement') ?? '暂无公告');
   } else {
-    await showRemoteAnnouncement(context, control, notice, launcher: launcher);
+    await showRemoteAnnouncement(
+      context,
+      control,
+      notice,
+      launcher: launcher,
+      updater: updater,
+    );
   }
 }
 
@@ -556,6 +585,7 @@ Future<void> checkForAppUpdate(
   BuildContext context,
   RemoteControlService control, {
   RemoteLinkLauncher? launcher,
+  AppUpdateService? updater,
 }) async {
   final route = ModalRoute.of(context);
   final result = await control.refresh(force: true);
@@ -576,7 +606,13 @@ Future<void> checkForAppUpdate(
   }
   final update = control.availableUpdate;
   if (update != null) {
-    await showRemoteUpdate(context, control, update, launcher: launcher);
+    await showRemoteUpdate(
+      context,
+      control,
+      update,
+      launcher: launcher,
+      updater: updater,
+    );
   } else {
     message(context, !control.hasUpdateInformation ? '暂时没有可用的更新' : '当前已是最新版本');
   }
@@ -585,9 +621,15 @@ Future<void> checkForAppUpdate(
 /// Ordinary prompts wait for the main route; required updates also cover other
 /// pages and interrupt an announcement, without marking it as read.
 class RemoteControlPrompts extends StatefulWidget {
-  const RemoteControlPrompts(this.control, {super.key, this.launcher});
+  const RemoteControlPrompts(
+    this.control, {
+    super.key,
+    this.launcher,
+    this.updater,
+  });
   final RemoteControlService control;
   final RemoteLinkLauncher? launcher;
+  final AppUpdateService? updater;
   @override
   State<RemoteControlPrompts> createState() => _RemoteControlPromptsState();
 }
@@ -660,6 +702,7 @@ class _RemoteControlPromptsState extends State<RemoteControlPrompts> {
           control,
           notice,
           launcher: widget.launcher,
+          updater: widget.updater,
         );
       } else {
         await showRemoteUpdate(
@@ -667,6 +710,7 @@ class _RemoteControlPromptsState extends State<RemoteControlPrompts> {
           control,
           update!,
           launcher: widget.launcher,
+          updater: widget.updater,
         );
       }
     } finally {

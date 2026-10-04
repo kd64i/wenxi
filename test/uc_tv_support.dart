@@ -227,6 +227,9 @@ class UcTvFixture {
           },
         };
       case '/1/clouddrive/file/download':
+        if (r.json.containsKey('pwd_id')) {
+          return jsonResponse({'status': 400, 'code': 23018}, 400);
+        }
         return jsonResponse({
           'status': 200,
           'code': 0,

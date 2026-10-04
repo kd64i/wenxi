@@ -32,12 +32,28 @@ extension _LanzouPersonal on LanzouConnector {
         contentType: contentType,
         followRedirects: false,
       );
+      final renewed = <String>[];
+      for (final raw
+          in response.headers.entries
+              .where((e) => e.key.toLowerCase() == 'set-cookie')
+              .expand((e) => e.value)) {
+        final pair = raw.split(';').first;
+        final name = pair.split('=').first.trim();
+        if ({'ylogin', 'phpdisk_info', 'acw_sc__v2'}.contains(name) &&
+            !RegExp(r'[\x00-\x1f\x7f]').hasMatch(pair)) {
+          renewed.add(pair);
+        }
+      }
+      context.cookie = LoginCredentials.mergeCookies([
+        ...renewed,
+        context.cookie,
+      ]);
       final challenge = lanzouChallengeCookie(response.body);
       if (challenge == null) return response;
       require(attempt == 0, '蓝奏需要网页验证，请重新网页登录');
       context.cookie = LoginCredentials.mergeCookies([
-        context.cookie,
         'acw_sc__v2=$challenge',
+        context.cookie,
       ]);
     }
     throw const AppException('蓝奏请求失败');
@@ -66,13 +82,23 @@ extension _LanzouPersonal on LanzouConnector {
     if (response.status == 401 || response.status == 403) {
       throw const AccountLoginRequired('蓝奏登录已过期，请重新网页登录');
     }
+    if (response.status == 405 || response.status == 429) {
+      throw const AppException('蓝奏暂时拒绝此操作，请稍后重试或在官网检查文件状态');
+    }
     final data = response.json, status = data.integer('zt');
     if (status == 9 || response.status == 401) {
       throw const AccountLoginRequired('蓝奏登录已过期，请重新网页登录');
     }
+    final detail = data['info'] is String
+        ? data.str('info').replaceAll(RegExp(r'<[^>]*>'), '').trim()
+        : '';
     require(
       response.successful && (status == 1 || listing && status == 2),
-      status == 4 ? '蓝奏请求频繁，请稍后重试' : '蓝奏文件操作失败（$status），请在官网检查权限和文件类型',
+      status == 4
+          ? '蓝奏请求频繁，请稍后重试'
+          : detail.isNotEmpty && detail.length <= 300
+          ? '蓝奏：$detail'
+          : '蓝奏文件操作失败（$status），请在官网检查权限和文件类型',
     );
     return data;
   }
@@ -245,6 +271,12 @@ extension _LanzouPersonal on LanzouConnector {
   ) async {
     require(s.canManageFiles, '请在个人网盘中修改文件');
     final context = await _personalContext(c);
+    final description = file.isDirectory
+        ? (await _accountCall(context, {
+            'task': 18,
+            'folder_id': _personalId(file.id),
+          })).obj('info').str('des')
+        : '';
     await _accountCall(
       context,
       file.isDirectory
@@ -252,7 +284,7 @@ extension _LanzouPersonal on LanzouConnector {
               'task': 4,
               'folder_id': _personalId(file.id),
               'folder_name': name,
-              'folder_description': '',
+              'folder_description': description,
             }
           : {
               'task': 46,
@@ -291,7 +323,32 @@ extension _LanzouPersonal on LanzouConnector {
       '不能删除网盘根目录',
     );
     final context = await _personalContext(c);
+    // Read the complete selected subtree before deleting anything. The service
+    // refuses to delete a folder while it still contains child folders.
+    final ordered = <CloudFile>[];
+    final visited = <String>{};
+    Future<void> collect(CloudFile file, Set<String> ancestors) async {
+      RequestScope.checkpoint();
+      require(_personalId(file.id) != '-1', '不能删除网盘根目录');
+      require(!ancestors.contains(file.id), '蓝奏目录结构异常，已取消删除');
+      if (!visited.add(file.id)) return;
+      require(
+        visited.length <= 10000 && ancestors.length < 128,
+        '所选目录过大，请分批删除',
+      );
+      if (file.isDirectory) {
+        final children = await _personalList(s, file.id, c);
+        for (final child in children) {
+          await collect(child, {...ancestors, file.id});
+        }
+      }
+      ordered.add(file);
+    }
+
     for (final file in files) {
+      await collect(file, {});
+    }
+    for (final file in ordered) {
       await _accountCall(context, {
         'task': file.isDirectory ? 3 : 6,
         file.isDirectory ? 'folder_id' : 'file_id': _personalId(file.id),
@@ -303,7 +360,7 @@ extension _LanzouPersonal on LanzouConnector {
     final context = await _personalContext(c);
     final info = (await _accountCall(context, {
       'task': file.isDirectory ? 18 : 22,
-      'file_id': _personalId(file.id),
+      file.isDirectory ? 'folder_id' : 'file_id': _personalId(file.id),
     })).obj('info');
     final raw = info.str(file.isDirectory ? 'new_url' : 'f_id');
     require(raw.isNotEmpty, '蓝奏未返回文件访问链接');
@@ -319,5 +376,23 @@ extension _LanzouPersonal on LanzouConnector {
       '蓝奏返回的文件链接无效',
     );
     return links.single.withPasscode(info.str('pwd'));
+  }
+
+  Future<void> _personalSharePassword(
+    CloudFile file,
+    String password,
+    Credential c,
+  ) async {
+    require(
+      RegExp(r'^[A-Za-z0-9]{2,12}$').hasMatch(password),
+      '蓝奏提取码需为 2–12 位字母或数字',
+    );
+    final context = await _personalContext(c);
+    await _accountCall(context, {
+      'task': file.isDirectory ? 16 : 23,
+      file.isDirectory ? 'folder_id' : 'file_id': _personalId(file.id),
+      'shows': 1,
+      'shownames': password,
+    });
   }
 }

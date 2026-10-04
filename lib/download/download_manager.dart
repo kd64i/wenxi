@@ -26,6 +26,10 @@ import 'transfer_http.dart';
 
 class _Stopped implements Exception {}
 
+class _GuestDownloadBatch {
+  bool notified = false;
+}
+
 class _Run {
   final scope = RequestScope();
   final wake = Completer<void>();
@@ -66,6 +70,7 @@ class DownloadManager extends ChangeNotifier {
     required this.refreshSource,
     this.foreground,
     this.checkNewCloudTask,
+    this.onGuestDownload,
   }) {
     space = SpaceBudget(
       () => files.freeBytes(engine.cache.path),
@@ -80,11 +85,13 @@ class DownloadManager extends ChangeNotifier {
   final TransferHttp http;
   final Future<DownloadSpec> Function(DownloadSpec) refreshSource;
   final void Function(CloudPlatform)? checkNewCloudTask;
+  final VoidCallback? onGuestDownload;
   final Future<void> Function(DownloadActivity activity)? foreground;
   late final SpaceBudget space;
   final _tasks = <String, DownloadTask>{}, _running = <String, _Run>{};
   final _unsettledRuns = <_Run>{};
   final _controls = <String, AsyncGate>{};
+  final _guestDownloadBatches = <String, _GuestDownloadBatch>{};
   final _pumpGate = AsyncGate();
   final _removalGate = AsyncGate();
   final _foregroundGate = AsyncGate();
@@ -419,6 +426,25 @@ class DownloadManager extends ChangeNotifier {
   Future<String> enqueue(DownloadSpec spec) async =>
       (await enqueueAll([spec])).single;
 
+  void _notifyGuestDownload(String id, {bool attempted = false}) {
+    final task = _tasks[id];
+    if (_closing || task == null || (!attempted && !task.spec.guestDownload)) {
+      return;
+    }
+    final batch = _guestDownloadBatches.putIfAbsent(
+      id,
+      _GuestDownloadBatch.new,
+    );
+    if (batch.notified) return;
+    batch.notified = true;
+    // Informational UI must never turn a working transfer into a failed task.
+    try {
+      onGuestDownload?.call();
+    } catch (error, stack) {
+      DiagnosticLog.error('download.guest_notice_failed', error, stack);
+    }
+  }
+
   Future<List<String>> enqueueAll(List<DownloadSpec> specs) =>
       _pumpGate.run(() async {
         require(!_closing, '应用正在退出');
@@ -475,7 +501,10 @@ class DownloadManager extends ChangeNotifier {
           }
           rethrow;
         }
+        final guestBatch = _GuestDownloadBatch();
         for (final task in tasks) {
+          _guestDownloadBatches[task.id] = guestBatch;
+          _notifyGuestDownload(task.id);
           await cleanups.release(task.spec.cleanup);
           DiagnosticLog.event(
             'download.enqueue',
@@ -601,6 +630,8 @@ class DownloadManager extends ChangeNotifier {
                 () => DownloadRequestContext(
                   id: next.id,
                   retries: next.retries,
+                  onGuestDownload: () =>
+                      _notifyGuestDownload(next.id, attempted: true),
                   onRetry: (_) async {
                     run.check();
                     run.networkRetries++;
@@ -888,6 +919,7 @@ class DownloadManager extends ChangeNotifier {
           // Once writers are stopped, persist removal before slow native or
           // filesystem cleanup. The durable markers retry after a restart.
           await _persist(removedDownload: id);
+          _guestDownloadBatches.remove(id);
           DiagnosticLog.event(
             'download.record_removed',
             fields: {'ref': DiagnosticLog.reference(id)},
@@ -972,6 +1004,7 @@ class DownloadManager extends ChangeNotifier {
           // An unrelated queued state save must not publish half a removal.
           for (final id in removed.keys) {
             _tasks.remove(id);
+            _guestDownloadBatches.remove(id);
             _interrupted.remove(id);
           }
           DiagnosticLog.event(
@@ -1089,6 +1122,7 @@ class DownloadManager extends ChangeNotifier {
       if (_tasks[id]!.spec.needsPreparation) {
         await _prepareSource(id, run);
       }
+      _notifyGuestDownload(id);
       File? output;
       final old = _tasks[id]!;
       if (old.payloadReady) {
@@ -1346,6 +1380,7 @@ class DownloadManager extends ChangeNotifier {
           .copyWith(
             fileName: previous.spec.fileName,
             relativePath: previous.spec.relativePath,
+            appUpdateKey: previous.spec.appUpdateKey,
           )
           .toJson();
       if (fresh.expectedSize <= 0 && previous.spec.expectedSize > 0) {
@@ -1383,6 +1418,7 @@ class DownloadManager extends ChangeNotifier {
       await cleanups.release(fresh.cleanup);
       if (!committed) await cleanups.ready(fresh.cleanup);
     }
+    _notifyGuestDownload(id);
     await cleanups.ready(previous.spec.cleanup);
   }
 
@@ -1837,6 +1873,7 @@ class DownloadManager extends ChangeNotifier {
     // Completed tasks can still be cleaning files or publishing their last
     // notification, after they no longer count as active downloads.
     await Future.wait(_unsettledRuns.map((run) => run.done).toList());
+    _guestDownloadBatches.clear();
     await _removalGate.run(() async {});
     await engine.close();
     await store.flush();

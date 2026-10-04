@@ -11,7 +11,7 @@
     "reason": "Synthetic credential-bearing URLs on reserved example/test hosts exercise rejection of unsafe URLs."
   },
   "test/remote_control_test.dart": {
-    "sha256": "0ad4ea8e80ed0f1707581faf7dcd71297eaabd376ef3e7d55b7ca487579da951",
+    "sha256": "4f809fd3f1382dd9bbf612a8bda85c78038acef947059a4a9bd3b117dde3ec29",
     "reason": "Synthetic credential-bearing URLs on reserved example/test hosts exercise rejection of unsafe URLs."
   },
   "test/tianyi_test.dart": {
@@ -23,7 +23,7 @@
     "reason": "Synthetic credential-bearing URLs on reserved example/test hosts exercise rejection of unsafe URLs."
   },
   "tool/remote-control-editor.test.cjs": {
-    "sha256": "d24e417fa942684e2e8c80ac3de0443fb3869e604aec5eb02d1cb9f79f23629b",
+    "sha256": "847e339af1fbfcba585bcf7d9709f50cd73d1e1469fc1e4be99d48f5d1c39c56",
     "reason": "Synthetic credential-bearing URLs on reserved example/test hosts exercise rejection of unsafe URLs."
   }
 }

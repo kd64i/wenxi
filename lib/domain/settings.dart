@@ -12,6 +12,10 @@ class AppSettings {
     this.destination,
     this.browserView = 'list',
     this.clipboardRecognition = true,
+    this.quarkGuestDirectDownload = false,
+    this.ucGuestDirectDownload = false,
+    this.quarkAuthenticatedDirectDownload = false,
+    this.hideGuestDownloadNotice = false,
   });
   final String theme;
   final int threads, concurrent, retries, speedLimit;
@@ -19,7 +23,12 @@ class AppSettings {
   final String? destination;
   final String browserView;
   final bool clipboardRecognition;
+  final bool quarkGuestDirectDownload;
+  final bool ucGuestDirectDownload;
+  final bool quarkAuthenticatedDirectDownload;
+  final bool hideGuestDownloadNotice;
   static const profiles = {
+    'ctfile': ('城通网盘', 8),
     'baidu': ('百度网盘', 64),
     'quark_route_1': ('夸克 · 直链', 512),
     'quark_route_2': ('夸克 · 快传', 64),
@@ -39,6 +48,7 @@ class AppSettings {
       profiles.containsKey(profile)
       ? profile
       : switch (platform) {
+          CloudPlatform.ctfile => 'ctfile',
           CloudPlatform.baidu => 'baidu',
           CloudPlatform.quark => 'quark_route_1',
           CloudPlatform.uc => 'uc',
@@ -78,6 +88,10 @@ class AppSettings {
     'destination': destination,
     'browserView': browserView,
     'clipboardRecognition': clipboardRecognition,
+    'quarkGuestDirectDownload': quarkGuestDirectDownload,
+    'ucGuestDirectDownload': ucGuestDirectDownload,
+    'quarkAuthenticatedDirectDownload': quarkAuthenticatedDirectDownload,
+    'hideGuestDownloadNotice': hideGuestDownloadNotice,
   };
   factory AppSettings.fromJson(Json j) => AppSettings(
     theme: ['System', 'Light', 'Dark'].contains(j.str('theme'))
@@ -95,6 +109,13 @@ class AppSettings {
     destination: j['destination']?.toString(),
     browserView: j.str('browserView') == 'grid' ? 'grid' : 'list',
     clipboardRecognition: j.boolean('clipboardRecognition', true),
+    quarkGuestDirectDownload: j.boolean('quarkGuestDirectDownload', false),
+    ucGuestDirectDownload: j.boolean('ucGuestDirectDownload', false),
+    quarkAuthenticatedDirectDownload: j.boolean(
+      'quarkAuthenticatedDirectDownload',
+      false,
+    ),
+    hideGuestDownloadNotice: j.boolean('hideGuestDownloadNotice', false),
   );
   AppSettings update(Json fields) =>
       AppSettings.fromJson({...toJson(), ...fields});

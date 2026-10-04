@@ -11,6 +11,35 @@ import 'package:asterlink/ui/downloads_page.dart';
 import 'browser_test_support.dart';
 import 'support.dart';
 
+class _FileTimeConnector extends BrowserTestConnector {
+  _FileTimeConnector() : super(CloudPlatform.tianyi);
+
+  @override
+  Future<List<CloudFile>> list(
+    BrowseSession session,
+    String parentId,
+    Credential? credential,
+  ) async => [
+    const CloudFile(id: 'folder', name: 'Folder', isDirectory: true),
+    const CloudFile(id: 'missing', name: 'A missing.txt'),
+    CloudFile(
+      id: 'new',
+      name: 'B new.txt',
+      modifiedAt: DateTime(2026, 9, 17, 10).toUtc().toIso8601String(),
+    ),
+    const CloudFile(
+      id: 'middle',
+      name: 'C middle.txt',
+      modifiedAt: '20260916150000',
+    ),
+    CloudFile(
+      id: 'old',
+      name: 'D old.txt',
+      modifiedAt: '${DateTime(2026, 9, 16, 10).millisecondsSinceEpoch ~/ 1000}',
+    ),
+  ];
+}
+
 class _WaitingDownloadConnector extends BrowserTestConnector {
   _WaitingDownloadConnector() : super(CloudPlatform.tianyi);
   int preparing = 0;
@@ -75,6 +104,25 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  browserTest('Lanzou share dialog defaults to permanent validity', (
+    tester,
+  ) async {
+    final value = await fixture(tester, platform: CloudPlatform.lanzou);
+    await value.render(tester, size: const Size(800, 900));
+    await tester.tap(find.byTooltip('使用说明.txt操作'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('创建分享'));
+    await tester.pumpAndSettle();
+    final dropdown = tester.widget<DropdownButtonFormField<int>>(
+      find.byType(DropdownButtonFormField<int>),
+    );
+    expect(dropdown.initialValue, 0);
+    expect(find.text('永久'), findsWidgets);
+    expect(find.text('7 天'), findsNothing);
+    expect(find.text('提取码（可选）'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   Future<void> chooseFamily(WidgetTester tester, String name) async {
     await tester.tap(find.byKey(const ValueKey('family-space')));
     await tester.pump();
@@ -82,6 +130,75 @@ void main() {
     await tester.tap(find.text(name).last);
     await tester.pumpAndSettle();
   }
+
+  for (final size in [const Size(393, 864), const Size(1100, 780)]) {
+    browserTest('File times appear in list, menu and grid at $size', (
+      tester,
+    ) async {
+      final value = await fixture(tester);
+      await value.render(tester, size: size);
+      expect(find.text('2026-09-17 17:32'), findsOneWidget);
+      final folder = find.ancestor(
+        of: find.text('假期相册'),
+        matching: find.byType(ListTile),
+      );
+      expect(
+        find.descendant(of: folder, matching: find.textContaining('2026-')),
+        findsNothing,
+      );
+      await tester.tap(find.byTooltip('01 海边照片.jpg操作'));
+      await tester.pumpAndSettle();
+      expect(find.text('2026-09-17 17:32'), findsNWidgets(2));
+      Navigator.of(tester.element(find.text('复制下载链接'))).pop();
+      await tester.pumpAndSettle();
+      await setView(tester, '大图标');
+      await tester.ensureVisible(find.text('01 海边照片.jpg'));
+      expect(find.text('2026-09-17 17:32'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  browserTest('Date sort compares mixed formats and keeps undated files last', (
+    tester,
+  ) async {
+    final value = await fixture(tester);
+    value.services.cloud.connectors[CloudPlatform.tianyi] =
+        _FileTimeConnector();
+    await value.render(tester, size: const Size(1100, 900));
+    expect(find.text('2026-09-16 10:00'), findsOneWidget);
+    expect(find.text('2026-09-16 15:00'), findsOneWidget);
+    expect(find.text('2026-09-17 10:00'), findsOneWidget);
+
+    void expectOrder(List<String> names) {
+      for (var i = 1; i < names.length; i++) {
+        expect(
+          tester.getTopLeft(find.text(names[i - 1])).dy,
+          lessThan(tester.getTopLeft(find.text(names[i])).dy),
+        );
+      }
+    }
+
+    for (final ascending in [true, false]) {
+      await tester.tap(find.byTooltip('排序'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('时间'));
+      await tester.pumpAndSettle();
+      expectOrder([
+        'Folder',
+        if (ascending) ...[
+          'D old.txt',
+          'C middle.txt',
+          'B new.txt',
+        ] else ...[
+          'B new.txt',
+          'C middle.txt',
+          'D old.txt',
+        ],
+        'A missing.txt',
+      ]);
+    }
+    expect(tester.takeException(), isNull);
+  });
 
   browserTest(
     'Batch download returns to browsing while links prepare in independent queue rows',
